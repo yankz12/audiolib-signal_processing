@@ -1,0 +1,51 @@
+[project]
+name = "audiolib-signal_processing"
+version = "0.0.1a"  # Required
+description = "Simplistic signal processing & audio analysis library"  # Optional
+readme = "README" # Optional
+requires-python = ">=3.0"
+license = {file = "LICENSE"}
+keywords = ["audio", "signal_processing", "plotting"]  # Optional
+authors = [
+  {name = "yankz12", email = "sa.may@posteo.net" } # Optional
+]
+maintainers = [
+  {name = "yankz12", email = "sa.may@posteo.net" } # Optional
+]
+classifiers = [  # Optional
+  # How mature is this project? Common values are
+  #   3 - Alpha
+  #   4 - Beta
+  #   5 - Production/Stable
+  "Development Status :: 3 - Alpha",
+
+  # Indicate who your project is intended for
+  "Intended Audience :: Audio Analysts & Signal Processing Beginners",
+  "Topic :: Audio & Signal Analysis",
+
+  # Pick your license as you wish
+  "License :: GNU3",
+
+  # Specify the Python versions you support here. In particular, ensure
+  # that you indicate you support Python 3. These classifiers are *not*
+  # checked by "pip install". See instead "python_requires" below.
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.7",
+  "Programming Language :: Python :: 3.8",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3 :: Only",
+]
+
+[project.urls]  # Optional
+"Homepage" = "https://github.com/yankz12/audiolib-signal_processing"
+"Bug Reports" = "https://github.com/yankz12/audiolib-signal_processing"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["audiolib.*"]
+
+[build-system]
+requires = ["setuptools>=43.0.0", "wheel"]
+build-backend = "setuptools.build_meta"
