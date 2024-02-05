@@ -6,7 +6,7 @@ from scipy.fftpack import fftshift
 def get_rfft_power_spec(x, fs, Nfft=None):
     if Nfft is None:
         Nfft = len(x)
-    freq = np.arange(Nfft/2+1)/(Nfft/2+1)*fs/2
+    freq = np.fft.rfftfreq(len(x), 1/fs)
     Sxx = np.abs(np.fft.rfft(x, Nfft) / Nfft)**2
     return freq, Sxx
 
