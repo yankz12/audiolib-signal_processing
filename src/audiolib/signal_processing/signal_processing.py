@@ -3,11 +3,16 @@ import scipy.signal as scsp
 
 from scipy.fftpack import fftshift
 
-def get_rfft_power_spec(x, fs, Nfft=None):
+def get_rfft_spec(x, fs, Nfft=None):
     if Nfft is None:
         Nfft = len(x)
     freq = np.fft.rfftfreq(Nfft, 1/fs)
-    Sxx = np.abs(np.fft.rfft(x, Nfft) / Nfft)**2
+    spec = np.abs(np.fft.rfft(x, Nfft) / Nfft)
+    return freq, spec
+
+def get_rfft_power_spec(x, fs, Nfft=None):
+    freq, spec = get_rfft_spec(x, fs, Nfft)
+    Sxx = spec**2
     return freq, Sxx
 
 def get_ir_from_rfft(freq, cplx_data_spec, fs, nfft):
