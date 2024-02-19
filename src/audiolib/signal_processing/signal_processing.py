@@ -15,15 +15,56 @@ def get_rfft_power_spec(x, fs, Nfft=None):
     Sxx = spec**2
     return freq, Sxx
 
-def get_ir_from_rfft(freq, cplx_data_spec, fs, nfft):
-    centered_ir = fs*fftshift(np.fft.irfft(cplx_data_spec))
-    t = np.arange(-int(nfft/2),int(nfft/2))/nfft
+def get_ir_from_rfft(spec, Nfft):
+    """
+    Computes real-valued IR from spectrum. Spectrum is expected to be computed
+    with np.fft.rfft
+
+    Parameters
+    ----------
+    spec : array of signal
+        Spectrum of signal, computed with np.fft.rfft
+    fs : int
+        Sampling frequency of x
+    Nfft : int
+        Number of FFT and IFFT points. Corresponds to the number of points of the 
+        resulting IR. If Nfft < len(x), x is zero-padded.
+
+    Returns
+    -------
+    t : numpy array
+        Time vector of resulting IR, centered at t = 0 in the middle of array
+    centered_ir : numpy array
+        Impulse Response
+    """
+    centered_ir = Nfft * fftshift(np.real(np.fft.irfft(spec, n=Nfft)))
+    t = np.arange(-int(Nfft/2),int(Nfft/2)) / Nfft
     return t, centered_ir
 
-def get_ir_from_rawdata(t, x, y, fs, nfft):
-    # TODO: Implement
-    print('To be implemented.')
-    return
+def get_ir_from_rawdata(x, fs, Nfft):
+    """
+    Computes real-valued IR from rawdata set.
+
+    Parameters
+    ----------
+    x : array of signal
+        Input signal, assumed to be completely real
+    fs : int
+        Sampling frequency of x
+    Nfft : int
+        Number of FFT and IFFT points. Corresponds to the number of points of the 
+        resulting IR. If Nfft < len(x), x is zero-padded.
+
+    Returns
+    -------
+    t : numpy array
+        Time vector of resulting IR, centered at t = 0 in the middle of array
+    centered_ir : numpy array
+        Impulse Response
+    """
+    _, spec = get_rfft_spec(x, fs, Nfft)
+    t, centered_ir = get_ir_from_rfft(spec, Nfft)
+    return t, centered_ir
 
 def get_msc(sig_0, sig_1, fs, blocklen, ):
     # TODO: Test
