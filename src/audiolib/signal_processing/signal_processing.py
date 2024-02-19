@@ -15,7 +15,7 @@ def get_rfft_power_spec(x, fs, Nfft=None):
     Sxx = spec**2
     return freq, Sxx
 
-def get_ir_from_rfft(spec, Nfft):
+def get_ir_from_rfft(spec, fs, Nfft):
     """
     Computes real-valued IR from spectrum. Spectrum is expected to be computed
     with np.fft.rfft
@@ -38,7 +38,7 @@ def get_ir_from_rfft(spec, Nfft):
         Impulse Response
     """
     centered_ir = Nfft * fftshift(np.real(np.fft.irfft(spec, n=Nfft)))
-    t = np.arange(-int(Nfft/2),int(Nfft/2)) / Nfft
+    t = np.arange(-int(Nfft/2),int(Nfft/2)) / fs
     return t, centered_ir
 
 def get_ir_from_rawdata(x, fs, Nfft):
@@ -63,7 +63,7 @@ def get_ir_from_rawdata(x, fs, Nfft):
         Impulse Response
     """
     _, spec = get_rfft_spec(x, fs, Nfft)
-    t, centered_ir = get_ir_from_rfft(spec, Nfft)
+    t, centered_ir = get_ir_from_rfft(spec, fs, Nfft)
     return t, centered_ir
 
 def get_msc(sig_0, sig_1, fs, blocklen, ):
