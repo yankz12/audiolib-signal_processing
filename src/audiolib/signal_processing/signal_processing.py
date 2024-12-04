@@ -7,7 +7,7 @@ def get_rfft_spec(x, fs, Nfft=None):
     if Nfft is None:
         Nfft = len(x)
     freq = np.fft.rfftfreq(Nfft, 1/fs)
-    spec = np.abs(np.fft.rfft(x, Nfft) / Nfft)
+    spec = np.abs(np.fft.rfft(x, Nfft))
     return freq, spec
 
 def get_rfft_power_spec(x, fs, Nfft=None):
