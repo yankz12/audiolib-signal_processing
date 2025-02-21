@@ -1,38 +1,118 @@
 import numpy as np 
 import scipy.signal as scsp
 
+from dataclasses import dataclass
 from scipy.fftpack import fftshift
-from typing import Optional
 
-class NovakSweep():
+@dataclass
+class ExpSweep():
+    """
+    This class is copied and adjusted from Antonin Novaks Synchronized Swept
+    Sine code, which is to be found in
+        https://ant-novak.com/pages/sss/
+    The underlying paper is 
+        (Novak et al., "Synchronized swept-sine: Theory, application, and
+        implementation." , Journal of the Audio Engineering Society 63.10
+        (2015): 786-798.
+
+    Parameters
+    ----------
+    f1 : float
+        starting frequency of sweep
+    f2 : float
+        stop frequency of sweep
+    approx_dur : float
+        desired duration of sweep. Final time vector might slightly differ
+        from this duration due to Novaks time adjustment of sweep (see
+        underlying paper)
+    apply_fade_to : str, defaults to 'both'
+        Wether or not to apply fade-in and/or fade-out 
+        Choose from 'in', 'out', 'both', 'None'
+    dur_fade_in : float, defaults to 0.01
+        Duration of fade-in window in seconds, ignored if apply_fade_to=='None'
+    dur_fade_out: float, defaults to 0.02
+        Duration of fade-out window in seconds, ignored if apply_fade_to=='None'
+    """
     f1 : float
     f2: float
     fs : int
     approx_dur: float
-    apply_fade : bool
-    dur_fade_in : Optional[float]
-    dur_fade_out : Optional[float]
+    apply_fade_to : str = 'both'
+    dur_fade_in : float = .01
+    dur_fade_out : float = .02
 
     def __post_init__(self, ):
-        if self.apply_fade:
-            self._samples_fade_in  = int(self.fade_len_in*self.fs)
-            self._samples_fade_out = int(self.fade_len_out*self.fs)
+        if self.apply_fade_to:
+            self._len_fade_in  = int(self.dur_fade_in*self.fs)
+            self._len_fade_out = int(self.dur_fade_out*self.fs)
         else:
-            self._samples_fade_in  = None 
-            self._samples_fade_out = None
+            self._len_fade_in  = None 
+            self._len_fade_out = None
 
         self._L = self.approx_dur/np.log(self.f2/self.f1)
 
     def get_sweep_signal(self, ):
-        t = np.arange(0,np.round(self.fs*self.approx_dur-1)/self.fs,1/self.fs)  # time axis
-        s = np.sin(2*np.pi*self.f1*self._L*np.exp(t/self._L))       # generated swept-sine signal
+        t = np.arange(
+            0,
+            np.round(self.fs * self.approx_dur - 1)/self.fs,
+            1/self.fs,
+        )  # time axis
+        s = np.sin(2*np.pi*self.f1*self._L*np.exp(t/self._L)) # generated swept-sine signal
 
-        if self.apply_fade:
-            s = self._apply_fade_in_out(s, 'both')
+        if self.apply_fade_to:
+            s = self._apply_fade(s, where='both')
 
         return t, s,
 
-    def _apply_fade_in_out(self, sweep, where, ):
+    def get_hhfrfs(self, y, n_harms, len_irs = 2**12, ):
+        fft_len = int(2**np.ceil(np.log2(len(y))))
+        f_axis = np.linspace(0, self.fs/2, num=round(fft_len/2)+1) # frequency axis
+        Y = np.fft.rfft(y, fft_len)/self.fs
+
+        # definition of the inferse filter in spectral domain 
+        # (Novak et al., "Synchronized swept-sine: Theory, application, and implementation." 
+        # Journal of the Audio Engineering Society 63.10 (2015): 786-798. Eq.(43)):
+        SI = 2*np.sqrt(f_axis/self._L)*np.exp(
+            -1j*2*np.pi*f_axis*self._L*(1-np.log(f_axis/self.f1)) + 1j*np.pi/4
+        )
+        SI[0] = 0j
+        # first Nyquist zone 
+        H = Y*SI
+
+        # ifft
+        h = np.fft.irfft(H)
+
+        dt = self._L*np.log(np.arange(1,n_harms + 1))*self.fs  # positions of higher orders up to N
+        dt_rem = dt - np.around(dt) # The time lags may be non-integer in samples, the non integer delay must be applied later
+        shft = round(len_irs/2)          # number of samples to make an artificail delay
+        h_pos = np.hstack((h, h[0:shft + len_irs - 1]))  # periodic impulse response
+        # separation of higher orders 
+        hs = np.zeros((n_harms, len_irs))
+        t_hs = np.arange(
+            0,
+            np.round(len_irs - 1)/self.fs,
+            1/self.fs,
+        )  # time axis
+        axe_w = np.linspace(0, np.pi, num=int(len_irs/2+1)); # frequency axis 
+
+        for k in range(n_harms):
+            hs[k,:] = h_pos[
+                len(h) - int(round(dt[k])) - shft-1:len(h) - int(round(dt[k]))
+                - shft + len_irs - 1
+            ]
+            H_temp = np.fft.rfft(hs[k,:])
+
+            # Non integer delay application
+            H_temp = H_temp * np.exp(-1j*dt_rem[k]*axe_w)
+            hs[k,:] = np.fft.irfft(H_temp)
+
+        # Higher Harmonics
+        freq_Hs = axe_w/(np.pi)*self.fs/2
+        Hs = np.fft.rfft(hs)
+
+        return t_hs, hs, freq_Hs, Hs, 
+
+    def _apply_fade(self, sweep, where, ):
         """
         Parameters
         ----------
@@ -42,21 +122,20 @@ class NovakSweep():
             Apply only fade-in, only fade-out or both
         """
         if where == 'in' or where == 'both':
-            sweep[0:self._samples_fade_in] = sweep[0:self._samples_fade_in] * (
+            sweep[0:self._len_fade_in] = sweep[0:self._len_fade_in] * (
                 (
-                    -np.cos(np.arange(self._samples_fade_in)
-                    / self._samples_fade_in*np.pi)+1
+                    -np.cos(np.arange(self._len_fade_in)
+                    / self._len_fade_in*np.pi)+1
                 ) / 2
             )
         if where == 'out' or where == 'both':
-            sweep[-self._samples_fade_out:] = sweep[-self._samples_fade_out:] *  (
+            sweep[-self._len_fade_out:] = sweep[-self._len_fade_out:] *  (
                 (
-                    np.cos(np.arange(self._samples_fade_out)
-                    / self._samples_fade_out*np.pi)+1
+                    np.cos(np.arange(self._len_fade_out)
+                    / self._len_fade_out*np.pi)+1
                 ) / 2
             )
         return sweep
-
 
 
 def get_rfft_spec(x, fs, Nfft=None):

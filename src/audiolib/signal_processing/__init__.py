@@ -4,6 +4,7 @@ from .signal_processing import (
     get_ir_from_rfft,
     get_ir_from_rawdata,
     get_msc,
+    ExpSweep,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     'get_ir_from_rfft',
     'get_ir_from_rawdata',
     'get_msc',
+    'ExpSweep',
 ]
