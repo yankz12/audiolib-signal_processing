@@ -59,9 +59,6 @@ class NovakSweep():
 
 
 
-
-
-
 def get_rfft_spec(x, fs, Nfft=None):
     if Nfft is None:
         Nfft = len(x)
