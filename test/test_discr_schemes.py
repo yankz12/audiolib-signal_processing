@@ -90,6 +90,13 @@ ef = st_sp.EulerForward(
     input_time=t,
     obs_order = obs_order,
 )
+bil = st_sp.Bilinear(
+    A=A,
+    B=B,
+    input_sig=u_in,
+    input_time=t,
+    obs_order = obs_order,
+)
 ab = st_sp.AdamBashforth(
     A=A,
     B=B,
@@ -100,8 +107,9 @@ ab = st_sp.AdamBashforth(
 )
 
 eb.run_over_input()
-ab.run_over_input()
 ef.run_over_input()
+bil.run_over_input()
+ab.run_over_input()
 
 fig_t, ax_t = al_plt.plot_time(
     t = t[:plot_win_len],
@@ -119,6 +127,13 @@ al_plt.plot_time(
     t = t[:plot_win_len],
     data = 1e3*eb.output_dict['x'][:plot_win_len],
     label = 'BW Euler',
+    fig=fig_t,
+    ax=ax_t,
+)
+al_plt.plot_time(
+    t = t[:plot_win_len],
+    data = 1e3*bil.output_dict['x'][:plot_win_len],
+    label = 'Bil.',
     fig=fig_t,
     ax=ax_t,
 )

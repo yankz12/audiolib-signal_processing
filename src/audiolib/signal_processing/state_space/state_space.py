@@ -114,9 +114,7 @@ class EulerBackward(StateSpaceModelling):
         self._validate_input_sig()
         # range(1, ...-1) to give space for future input signal
         for idx in range(1, len(self._output_matrix)-1):
-            y_n = self.run_one_sample(
-                idx
-            )
+            y_n = self.run_one_sample(idx)
             self._output_matrix[idx] = y_n
 
     def run_one_sample(self, idx, ):
@@ -125,8 +123,6 @@ class EulerBackward(StateSpaceModelling):
             self._B_new * self.input_sig[idx]
         )
         return y_n
-
-
 
 
 @dataclass(kw_only=True)
@@ -139,7 +135,7 @@ class Bilinear(StateSpaceModelling):
     and
     B_new = (I - A*Ts/2)^{-1} * B*Ts/2
     we get
-    X[n+1] = A_new * X[n] + B_new * (U[n+1] + U[n])
+    X[n+1] = A_new * X[n] + B_new * (U[n+1] + U[n]) / 2
     with
         X[n+1] = current output
         X[n] = previous output
@@ -147,36 +143,26 @@ class Bilinear(StateSpaceModelling):
         U[n] = previous input
     """
     def __post_init__(self):
-        self._A_new = (
-            np.linalg.inv(self._ident-self.A*self.Ts/2) *
-            (self._ident + self.A*self.ts/2)
-        )
-        self._B_new = (
-            np.linalg.inv(self._ident - self.A*self.Ts/2) * self.B*self.Ts/2
-        )
+        """
+        Save inversion results in temporary variable to not have to
+        invert twice: inversion is computationally intensive!
+        """
+        inv_neg = np.linalg.inv(self._ident - self.A*self.Ts/2)
+        self._A_new = inv_neg @ (self._ident + self.A*self.Ts/2)
+        self._B_new = inv_neg @ self.B*self.Ts
 
     def run_over_input(self):
-        self._validate_input()
-        for idx in range(len(self._output_matrix[:-3])):
-            cur_input_sig = self.input_sig[idx+1]
-            prev_input_sig = self.input_sig[idx]
-            prev_output = self._output_matrix[idx]
-            cur_output = self.run_one_sample(
-                cur_input_sig=cur_input_sig,
-                prev_input_sig=prev_input_sig,
-                prev_output=prev_output,
-            )
-            self._output_matrix[idx+1] = cur_output
+        self._validate_input_sig()
+        for idx in range(1, len(self._output_matrix)-1):
+            y_n = self.run_one_sample(idx)
+            self._output_matrix[idx] = y_n
 
-    def run_one_sample(self, idx, cur_input_sig, prev_input_sig, prev_output):
-        # cur_output = (
-        #     self._A_new @ prev_output + 
-        #     self._B_new * (cur_input_sig + prev_input_sig)
-        # )
+    def run_one_sample(self, idx, ):
         y_n = (
-            self._A_new @ self._output_matrix[idx]
+            self._A_new @ self._output_matrix[idx - 1] +
+            self._B_new * (self.input_sig[idx] + self.input_sig[idx-1])/2
         )
-        return cur_output
+        return y_n
 
 
 @dataclass(kw_only=True)
@@ -211,12 +197,14 @@ class EulerForward(StateSpaceModelling):
 @dataclass(kw_only=True)
 class AdamBashforth(StateSpaceModelling):
     """
-    X[n+1] = X[n] * (I + A*Ts) + B*Ts*U[n] (= EulerForward)
-    x[n+2] = X[n+1] * (I + 3/2*A*Ts) + Ts{ B*U[n+1] - .5*(A*X[n] + B*U[n]) }
-    X[n+3] = X[n+2] * (I + 23/12*A*Ts) + Ts{
+    Step 1: X[n+1] = X[n] * (I + A*Ts) + B*Ts*U[n] (= EulerForward)
+    Step 2: x[n+2] = X[n+1] * (I + 3/2*A*Ts) + Ts{ B*U[n+1] - .5*(A*X[n] + B*U[n]) }
+    Step 3: X[n+3] = X[n+2] * (I + 23/12*A*Ts) + Ts{
         B*U[n+2] - 16/12*(A*X[n+1] + B*U[n+1]) + 5/12*(A*X[n] + B*U[n])
     }
+
     with
+    
     X[n+3] = X[n]
     X[n+2] = X[n-1]
     X[n+1] = X[n-2]
@@ -227,6 +215,7 @@ class AdamBashforth(StateSpaceModelling):
     X[n]   = X[n-1] * (I + 23/12*A*Ts) + Ts{
         B*U[n-1] - 16/12*(A*X[n-2] + B*U[n-2]) + 5/12*(A*X[n-3] + B*U[n-3])
     }
+
     Parameters
     ----------
     order : int, defaults to 3, minimum 2, maximum 3
