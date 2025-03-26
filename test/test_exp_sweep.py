@@ -5,6 +5,15 @@ import scipy.signal as sc_sp
 
 from audiolib.signal_processing import ExpSweep
 
+"""
+Test Implementation fo Novaks Exponential Sweep by
+    1. calculate b-coeffs of FIR low-pass @ fs/4 cutoff
+    2. Create sweep signal starting at 2 kHz
+    2. convolute filter with sweep signal
+    3. extract HHFRFs 
+"""
+
+
 plt.close('all')
 
 # ----------------------------------------------------------------------------
@@ -21,7 +30,7 @@ n_harms = 1
 # Linear test filter definition 
 fir_len = 100
 fir_cutoff = fs/4
-fir = sc_sp.firwin(numtaps=100, cutoff=fs/4, fs=fs,)
+fir = sc_sp.firwin(numtaps=100, cutoff=fir_cutoff, fs=fs,)
 
 # ----------------------------------------------------------------------------
 # Sweep creation
@@ -54,6 +63,21 @@ fig, ax_mag, ax_arg = al_plt.plot_mag_phase(
     magnitude = 20*np.log10(abs(Hs.transpose())),
     phase_deg = np.unwrap(np.angle(Hs_correct_phase.transpose()))/np.pi*180,
 )
-ax_mag.legend(('1st harmonic','2nd harmonic'), loc=3)
+ax_mag.axvline(
+    x=f1,
+    ymin=ax_mag.get_ylim()[0],
+    ymax=ax_mag.get_ylim()[1],
+    c='k',
+)
+ax_mag.axvline(
+    x=fir_cutoff,
+    ymin=ax_mag.get_ylim()[0],
+    ymax=ax_mag.get_ylim()[1],
+    c='r',
+)
+ax_mag.legend(
+    ('1st harmonic', 'Sweep start freq', 'Filter Cutoff'),
+    loc='upper right',
+)
 ax_mag.set_xlim(0, fs/2)
 plt.show(block=False)
