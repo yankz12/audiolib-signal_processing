@@ -1,22 +1,22 @@
+import audiolib.signal_processing.state_space as st_sp
 import audiolib.plotting as al_plt
 import audiolib.elac as al_elac
 import matplotlib.pyplot as plt
 import numpy as np
 
-from discr_schemes import EulerBackward, AdamBashforth, EulerForward
-from novak_sweep import get_sweep, process_sweep
+from audiolib.signal_processing import ExpSweep
 
 # ----------------------------------------------------------------------------
 # General variables
 fig_size = (6.4, 4.5)
 freq = np.arange(1, 2e3, )
-fs = 48e3
+fs = 48000
 Ts = 1/fs
 
 sig_dur = .5
-sig_type = 'dirac' # ['dirac', 'sine']
+sig_type = 'sweep' # ['dirac', 'sine', 'sweep']
 
-plot_win_dur = .15 # 200e-3 # 50ms [s]
+plot_win_dur = .4 # 200e-3 # 50ms [s]
 plot_win_len = int(np.round(plot_win_dur*fs))
 
 ref_vel = 1e-9
@@ -38,7 +38,15 @@ elif sig_type == 'sine':
 elif sig_type == 'sweep':
     f1 = 20
     f2 = 2000
-    t, u_in = get_sweep(f1, f2, fs, sig_dur)
+    sweep = ExpSweep(
+        f1=f1,
+        f2=f2,
+        fs=fs,
+        approx_dur=sig_dur,
+    )
+    t, u_in = sweep.get_sweep_signal()
+    t = t[:-1]
+    u_in = u_in[:-1]
 
 
 # ----------------------------------------------------------------------------
@@ -68,21 +76,21 @@ A = np.array(
 )
 B = np.array([1/Le, 0, 0, ])
 
-eb = EulerBackward(
+eb = st_sp.EulerBackward(
     A=A,
     B=B,
     input_sig=u_in,
     input_time=t,
     obs_order = obs_order,
 )
-ef = EulerForward(
+ef = st_sp.EulerForward(
     A=A,
     B=B,
     input_sig=u_in,
     input_time=t,
     obs_order = obs_order,
 )
-ab = AdamBashforth(
+ab = st_sp.AdamBashforth(
     A=A,
     B=B,
     input_sig=u_in,

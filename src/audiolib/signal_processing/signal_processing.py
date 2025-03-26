@@ -52,6 +52,17 @@ class ExpSweep():
         self._L = self.approx_dur/np.log(self.f2/self.f1)
 
     def get_sweep_signal(self, ):
+        """
+        Gives the time signal of the exponential sweep (= input signal for
+        measurement).
+        
+        Returns
+        -------
+        t : np.ndarray
+            Time vector of sweep
+        s : np.ndarray
+            Sweep
+        """
         t = np.arange(
             0,
             np.round(self.fs * self.approx_dur - 1)/self.fs,

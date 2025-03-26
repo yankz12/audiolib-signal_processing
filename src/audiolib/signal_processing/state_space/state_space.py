@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from collections import OrderedDict
 from dataclasses import dataclass
 
+import pdb
+
 @dataclass(kw_only=True)
 class StateSpaceModelling(ABC):
     """
@@ -109,19 +111,22 @@ class EulerBackward(StateSpaceModelling):
         self._B_new = self._A_new @ (self.B * self.Ts) # new B matrix
 
     def run_over_input(self):
-        # TODO: Fix the [:-3]. This is a left-over from an earlier project!
         self._validate_input_sig()
-        for idx in range(1, len(self._output_matrix)):
+        # range(1, ...-1) to give space for future input signal
+        for idx in range(1, len(self._output_matrix)-1):
             y_n = self.run_one_sample(
                 idx
             )
             self._output_matrix[idx] = y_n
 
     def run_one_sample(self, idx, ):
-        y_n = (
-            self._A_new @ self._output_matrix[idx-1] +
-            self._B_new * self.input_sig[idx]
-        )
+        try:
+            y_n = (
+                self._A_new @ self._output_matrix[idx-1] +
+                self._B_new * self.input_sig[idx]
+            )
+        except:
+            pdb.set_trace()
         return y_n
 
 
