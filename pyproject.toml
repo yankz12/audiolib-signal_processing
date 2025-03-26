@@ -40,9 +40,16 @@ classifiers = [  # Optional
 "Homepage" = "https://github.com/yankz12/audiolib-signal_processing"
 "Bug Reports" = "https://github.com/yankz12/audiolib-signal_processing"
 
+# [tool.setuptools]
+# packages = ["audiolib", "audiolib.signal_processing"]
+
+# [tool.setuptools.package-dir]
+# audiolib = "src/audiolib"
+# audiolib.signal_processing = "src/audiolib/signal_processing"
+
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["audiolib.*"]
+include = ["audiolib.*", "audiolib.signal_processing.*"]
 
 [build-system]
 requires = ["setuptools>=43.0.0", "wheel"]
