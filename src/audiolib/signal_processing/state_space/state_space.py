@@ -120,13 +120,10 @@ class EulerBackward(StateSpaceModelling):
             self._output_matrix[idx] = y_n
 
     def run_one_sample(self, idx, ):
-        try:
-            y_n = (
-                self._A_new @ self._output_matrix[idx-1] +
-                self._B_new * self.input_sig[idx]
-            )
-        except:
-            pdb.set_trace()
+        y_n = (
+            self._A_new @ self._output_matrix[idx-1] +
+            self._B_new * self.input_sig[idx]
+        )
         return y_n
 
 
