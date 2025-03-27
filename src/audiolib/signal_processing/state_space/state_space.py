@@ -25,12 +25,14 @@ class StateSpaceModelling(ABC):
     A : np.nparray
         A-Matrix of the system under study
     B : np.ndarray
+    input_sig : input signal
+    input_time : time vector of input signal (sampling freq. is derived from
+        this vector)
     obs_order : list of strings
         CAUTION: Setting this value after initialization resets output to zeros!
         Contains the order of observations, e.g. ['i', 'x', 'v'] for observing
         current, displacement and velocity. Is directly linked to matrices
         A & B, since the observation order changes the shape of those matrices
-    
     """
     A: np.ndarray
     B: np.ndarray
@@ -104,6 +106,20 @@ class EulerBackward(StateSpaceModelling):
         X[n+1] = current output
         X[n] = previous output
         U[n+1] = current input
+
+    Parameters
+    ----------
+    A : np.nparray
+        A-Matrix of the system under study
+    B : np.ndarray
+    input_sig : input signal
+    input_time : time vector of input signal (sampling freq. is derived from
+        this vector)
+    obs_order : list of strings
+        CAUTION: Setting this value after initialization resets output to zeros!
+        Contains the order of observations, e.g. ['i', 'x', 'v'] for observing
+        current, displacement and velocity. Is directly linked to matrices
+        A & B, since the observation order changes the shape of those matrices
     """
 
     def __post_init__(self):
@@ -141,7 +157,22 @@ class Bilinear(StateSpaceModelling):
         X[n] = previous output
         U[n+1] = current input
         U[n] = previous input
+
+    Parameters
+    ----------
+    A : np.nparray
+        A-Matrix of the system under study
+    B : np.ndarray
+    input_sig : input signal
+    input_time : time vector of input signal (sampling freq. is derived from
+        this vector)
+    obs_order : list of strings
+        CAUTION: Setting this value after initialization resets output to zeros!
+        Contains the order of observations, e.g. ['i', 'x', 'v'] for observing
+        current, displacement and velocity. Is directly linked to matrices
+        A & B, since the observation order changes the shape of those matrices
     """
+
     def __post_init__(self):
         """
         Save inversion results in temporary variable to not have to
@@ -177,6 +208,20 @@ class EulerForward(StateSpaceModelling):
         X[n+1] = current output
         X[n] = previous output
         U[n] = previous input
+
+    Parameters
+    ----------
+    A : np.nparray
+        A-Matrix of the system under study
+    B : np.ndarray
+    input_sig : input signal
+    input_time : time vector of input signal (sampling freq. is derived from
+        this vector)
+    obs_order : list of strings
+        CAUTION: Setting this value after initialization resets output to zeros!
+        Contains the order of observations, e.g. ['i', 'x', 'v'] for observing
+        current, displacement and velocity. Is directly linked to matrices
+        A & B, since the observation order changes the shape of those matrices
     """
     def __post_init__(self):
         self._A_new = self.A*self.Ts + self._ident # New A matrix
@@ -218,8 +263,17 @@ class AdamBashforth(StateSpaceModelling):
 
     Parameters
     ----------
-    order : int, defaults to 3, minimum 2, maximum 3
-        Order of the Adams Bashfort method
+    A : np.nparray
+        A-Matrix of the system under study
+    B : np.ndarray
+    input_sig : input signal
+    input_time : time vector of input signal (sampling freq. is derived from
+        this vector)
+    obs_order : list of strings
+        CAUTION: Setting this value after initialization resets output to zeros!
+        Contains the order of observations, e.g. ['i', 'x', 'v'] for observing
+        current, displacement and velocity. Is directly linked to matrices
+        A & B, since the observation order changes the shape of those matrices
     """
     order : int = 3
 
@@ -254,6 +308,8 @@ class AdamBashforth(StateSpaceModelling):
 
     def _run_order_3(self, idx, ):
         """
+        Runs 3rd order Adam-Bashforth over input signal, uses index as iterator
+
         Parameters
         ----------
         idx : int
