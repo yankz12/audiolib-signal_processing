@@ -293,9 +293,6 @@ class AdamBashforth(StateSpaceModelling):
                 f"Order {ord} out of range: has to be 2 or 3."
             )
 
-    def _set_run(self):
-        pass
-
     def _run_order_2(self, idx, ):
         # f_n2 = self.A @ self._output_matrix[idx-2] + self.B * self.input_sig[idx-2]
         f_n2 = self.A @ self._output_matrix[idx-2] + self.B * self.input_sig[idx-2]
@@ -348,7 +345,6 @@ class AdamBashforth(StateSpaceModelling):
     def run_over_input(self):
         for idx in range(len(self._output_matrix)):
             if idx == 0:
-                print(f"Initializing first {self._order} samples …")
                 tmp_idx = self._order + 1
                 output, _ = self.run_one_sample(
                     idx = tmp_idx,
@@ -373,8 +369,49 @@ class AdamBashforth(StateSpaceModelling):
     def order(self, ord, ):
         self._validate_order(ord)
         self._order = ord
-        print(f"Adam Bashforth: Set to order {self._order}.")
         if ord == 2:
             self.run_one_sample = self._run_order_2
         elif ord == 3:
             self.run_one_sample = self._run_order_3
+
+
+@dataclass(kw_only=True)
+class Heun(StateSpaceModelling):
+    """
+    Heuns method is a predictor-corrector method to calculate linear and
+    non-linear ODEs. It estimates the derivative using Euler-Forward 
+    (predictor) and improves the accuracy using Bilinear (corrector).
+
+    ŷ[n+1] = y[n] + Ts*f(t[n], y[n]) (Euler Forward)
+    y[n+1] = y[n] + 1/2 * Ts * (f(t[n+1], ŷ[n+1]) + f(t[n], y[n])) (Bilinear)
+
+    which is the same as
+
+    ŷ[n] = y[n-1] + Ts*f(t[n-1], y[n-1]) (Euler Forward)
+    y[n] = y[n-1] + 1/2 * Ts * (f(t[n], ŷ[n]) + f(t[n-1], y[n-1])) (Bilinear)
+    """
+
+    def __post_init__(self):
+        self._euler_forward = EulerForward(
+            A=self.A,
+            B=self.B,
+            input_sig=self.input_sig,
+            input_time=self.input_time,
+            obs_order=self.obs_order,
+        ) # Initialize predictor
+
+    def run_over_input(self):
+        self._validate_input_sig() # TODO: Move to super class setter of input?
+        for idx in range(1, len(self._output_matrix)-1):
+            y_n = self.run_one_sample(idx)
+            self._output_matrix[idx] = y_n
+            # Need to overwrite euler forward output matrix for correct calcs:
+            self._euler_forward._output_matrix = self._output_matrix
+    
+    def run_one_sample(self, idx, ):
+        # "f_n1" means f(t,y) at t-1, "f_n" means f(t,y) at t 
+        ŷ_n, f_n1 = self._euler_forward.run_one_sample(idx) # Predictor
+        f_n = self.A @ ŷ_n + self.B*self.input_sig[idx]
+        y_n = self._output_matrix[idx-1] + .5*self.Ts*(f_n + f_n1) 
+        return y_n
+    

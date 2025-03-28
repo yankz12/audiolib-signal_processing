@@ -3,6 +3,7 @@ from .state_space import (
     EulerForward,
     AdamBashforth,
     Bilinear,
+    Heun,
 )
 
 __all__ = [
@@ -10,4 +11,5 @@ __all__ = [
     'EulerForward',
     'AdamBashforth',
     'Bilinear',
+    'Heun',
 ]
