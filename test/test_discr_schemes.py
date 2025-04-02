@@ -153,5 +153,8 @@ al_plt.plot_time(
     ax=ax_t,
 )
 ylims = max(abs(1e3*eb.output_dict['x']))
-ax_t.set_ylim([-ylims, ylims])
+ax_t.set(
+    ylim=[-ylims, ylims],
+    ylabel='Displacement [mm]'
+)
 plt.show(block=False)
