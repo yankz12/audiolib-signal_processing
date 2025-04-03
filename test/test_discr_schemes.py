@@ -3,6 +3,7 @@ import audiolib.plotting as al_plt
 import audiolib.elac as al_elac
 import matplotlib.pyplot as plt
 import numpy as np
+import warnings
 
 from audiolib.signal_processing import ExpSweep
 
@@ -74,6 +75,28 @@ A = np.array(
         [Bl/Mms,    -Kms/Mms,       -Rms/Mms]
     ]
 )
+Kms_non_lin = np.
+def non_lin_0(non_lin_x, non_lin_y, cur_x, ):
+    cur_idx = np.argmin(np.abs(cur_x - non_lin_x))
+    cur_val = non_lin_y[cur_idx]
+    cur_val_out_range = (
+        (cur_x < 0 and cur_x < 2*non_lin_x[0]) or
+        (cur_x > 0 and cur_x > 2*non_lin_x[-1])
+    )
+    if cur_val_out_range:
+        warnings.warn(
+            'Observation Value twice as big as range of non-linear ' +
+            'value table: Extend table or reduce input signal amplitude!'
+        )
+    return cur_val
+
+# A = np.array(
+#     [
+#         [-Re/Le,    0,              -Bl/Le  ],
+#         [0,         0,              1       ],
+#         [Bl/Mms,    -Kms/Mms,       -Rms/Mms]
+#     ]
+# )
 B = np.array([1/Le, 0, 0, ])
 
 eb = st_sp.EulerBackward(

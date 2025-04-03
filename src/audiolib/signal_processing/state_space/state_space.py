@@ -64,6 +64,13 @@ class StateSpaceModelling(ABC):
             raise ValueError(
                 "No input time vector given. Consider using run_one_sample()."
             )
+        
+    def is_nonlinear(self):
+        # Check if an entry of A-matrix is a function. If so, it is non-linear
+        for entry in np.nditer(self.A):
+            if callable(entry):
+                return True
+        return False
 
     @property
     def output_dict(self):
@@ -410,6 +417,10 @@ class Heun(StateSpaceModelling):
     
     def run_one_sample(self, idx, ):
         # "f_n1" means f(t,y) at t-1, "f_n" means f(t,y) at t 
+        if self.is_nonlinear():
+            if idx == 0:
+                cur_non_lin_obs = 0 # Assume initial observation value 0
+                self._euler_forward.A = self.A
         ŷ_n, f_n1 = self._euler_forward.run_one_sample(idx) # Predictor
         f_n = self.A @ ŷ_n + self.B*self.input_sig[idx]
         y_n = self._output_matrix[idx-1] + .5*self.Ts*(f_n + f_n1) 
