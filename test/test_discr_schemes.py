@@ -7,6 +7,24 @@ import warnings
 
 from audiolib.signal_processing import ExpSweep
 
+def non_lin_0(non_lin_x, non_lin_y, cur_x, ):
+    # TODO: Move to state space class
+    cur_idx = np.argmin(np.abs(cur_x - non_lin_x))
+    cur_val = non_lin_y[cur_idx]
+    cur_val_out_range = (
+        (cur_x < 0 and cur_x < 2*non_lin_x[0]) or
+        (cur_x > 0 and cur_x > 2*non_lin_x[-1])
+    )
+    if cur_val_out_range:
+        warnings.warn(
+            'Observation Value twice as big as range of non-linear ' +
+            'value table: Extend table or reduce input signal amplitude!'
+        )
+    return cur_val
+
+def non_lin_kms(tmp_output, ):
+    return -Kms*(1 + .5*tmp_output['x']**2)/Mms
+
 # ----------------------------------------------------------------------------
 # General variables
 fig_size = (6.4, 4.5)
@@ -75,28 +93,17 @@ A = np.array(
         [Bl/Mms,    -Kms/Mms,       -Rms/Mms]
     ]
 )
-Kms_non_lin = np.
-def non_lin_0(non_lin_x, non_lin_y, cur_x, ):
-    cur_idx = np.argmin(np.abs(cur_x - non_lin_x))
-    cur_val = non_lin_y[cur_idx]
-    cur_val_out_range = (
-        (cur_x < 0 and cur_x < 2*non_lin_x[0]) or
-        (cur_x > 0 and cur_x > 2*non_lin_x[-1])
-    )
-    if cur_val_out_range:
-        warnings.warn(
-            'Observation Value twice as big as range of non-linear ' +
-            'value table: Extend table or reduce input signal amplitude!'
-        )
-    return cur_val
 
-# A = np.array(
-#     [
-#         [-Re/Le,    0,              -Bl/Le  ],
-#         [0,         0,              1       ],
-#         [Bl/Mms,    -Kms/Mms,       -Rms/Mms]
-#     ]
-# )
+A_nonlin = np.array(
+    [
+        [-Re/Le,    0,              -Bl/Le  ],
+        [0,         0,              1       ],
+        [Bl/Mms,    non_lin_kms,       -Rms/Mms]
+    ]
+)
+
+
+
 B = np.array([1/Le, 0, 0, ])
 
 eb = st_sp.EulerBackward(
@@ -128,19 +135,28 @@ ab = st_sp.AdamBashforth(
     obs_order = obs_order,
     order=3,
 )
-heun = st_sp.Heun(
+heun_lin = st_sp.Heun(
     A=A,
     B=B,
     input_sig=u_in,
     input_time=t,
     obs_order = obs_order,
 )
+heun_nonlin = st_sp.Heun(
+    A=A_nonlin,
+    B=B,
+    input_sig=u_in,
+    input_time=t,
+    obs_order = obs_order,
+)
+
 
 eb.run_over_input()
 ef.run_over_input()
 bil.run_over_input()
 ab.run_over_input()
-heun.run_over_input()
+heun_lin.run_over_input()
+heun_nonlin.run_over_input()
 
 fig_t, ax_t = al_plt.plot_time(
     t = t[:plot_win_len],
@@ -170,8 +186,15 @@ al_plt.plot_time(
 )
 al_plt.plot_time(
     t = t[:plot_win_len],
-    data = 1e3*heun.output_dict['x'][:plot_win_len],
-    label = 'Heun',
+    data = 1e3*heun_lin.output_dict['x'][:plot_win_len],
+    label = 'Heun Lin.',
+    fig=fig_t,
+    ax=ax_t,
+)
+al_plt.plot_time(
+    t = t[:plot_win_len],
+    data = 1e3*heun_nonlin.output_dict['x'][:plot_win_len],
+    label = 'Heun Non-Lin.',
     fig=fig_t,
     ax=ax_t,
 )

@@ -71,6 +71,24 @@ class StateSpaceModelling(ABC):
             if callable(entry):
                 return True
         return False
+    
+    def get_nonlinear_funcs(self):
+        if not self.is_nonlinear():
+            raise ValueError(
+                'System is linear: no non-linear functions to return.'
+            )
+        nonlin_entries = np.array([])
+        for entry in np.nditer(self.A):
+            if callable(entry):
+                nonlin_entries.append(entry)
+        return nonlin_entries
+    
+    def tmp_nonlin_result_matrix(self):
+        nonlin_funcs = self.get_nonlinear_funcs()
+        for func in nonlin_funcs:
+            tmp_A = self.A
+            tmp_A[np.where(self.A==func)] = func(self.output_dict)
+        return tmp_A
 
     @property
     def output_dict(self):
@@ -231,6 +249,7 @@ class EulerForward(StateSpaceModelling):
         A & B, since the observation order changes the shape of those matrices
     """
     def __post_init__(self):
+        # if self.is_nonlinear():
         self._A_new = self.A*self.Ts + self._ident # New A matrix
         self._B_new = self.B*self.Ts # New B matrix
 
@@ -417,12 +436,20 @@ class Heun(StateSpaceModelling):
     
     def run_one_sample(self, idx, ):
         # "f_n1" means f(t,y) at t-1, "f_n" means f(t,y) at t 
+        
+        # Predictor calculation
         if self.is_nonlinear():
-            if idx == 0:
-                cur_non_lin_obs = 0 # Assume initial observation value 0
-                self._euler_forward.A = self.A
-        ŷ_n, f_n1 = self._euler_forward.run_one_sample(idx) # Predictor
-        f_n = self.A @ ŷ_n + self.B*self.input_sig[idx]
+            tmp_A_pred = self.tmp_nonlin_result_matrix(
+                self.output_dict[idx-1]
+            )
+            self._euler_forward.A = tmp_A_pred
+        ŷ_n, f_n1 = self._euler_forward.run_one_sample(idx)
+
+        # Corrector Calculation
+        tmp_A_corr = self.tmp_nonlin_result_matrix(
+                ŷ_n
+            ) if self.is_nonlinear() else self.A
+        f_n = tmp_A_corr @ ŷ_n + self.B*self.input_sig[idx]
         y_n = self._output_matrix[idx-1] + .5*self.Ts*(f_n + f_n1) 
         return y_n
     
