@@ -23,7 +23,7 @@ def non_lin_0(non_lin_x, non_lin_y, cur_x, ):
     return cur_val
 
 def non_lin_kms(tmp_output, ):
-    return -Kms*(1 + .5*tmp_output['x']**2)/Mms
+    return -Kms*(1 + 1e5*tmp_output['x']**2)/Mms
 
 # ----------------------------------------------------------------------------
 # General variables
@@ -149,7 +149,6 @@ heun_nonlin = st_sp.Heun(
     input_time=t,
     obs_order = obs_order,
 )
-
 
 eb.run_over_input()
 ef.run_over_input()

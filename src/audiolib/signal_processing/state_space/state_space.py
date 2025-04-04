@@ -64,31 +64,35 @@ class StateSpaceModelling(ABC):
             raise ValueError(
                 "No input time vector given. Consider using run_one_sample()."
             )
-        
-    def is_nonlinear(self):
-        # Check if an entry of A-matrix is a function. If so, it is non-linear
-        for entry in np.nditer(self.A):
-            if callable(entry):
-                return True
-        return False
     
     def get_nonlinear_funcs(self):
-        if not self.is_nonlinear():
+        if not self.is_nonlinear:
             raise ValueError(
                 'System is linear: no non-linear functions to return.'
             )
         nonlin_entries = np.array([])
-        for entry in np.nditer(self.A):
+        for entry in self.A.flatten():
             if callable(entry):
-                nonlin_entries.append(entry)
+                nonlin_entries = np.append(nonlin_entries, entry)
+        
         return nonlin_entries
     
-    def tmp_nonlin_result_matrix(self):
+    def tmp_nonlin_result_matrix(self, cur_output, ):
         nonlin_funcs = self.get_nonlinear_funcs()
+        tmp_A = self.A.copy()
         for func in nonlin_funcs:
-            tmp_A = self.A
-            tmp_A[np.where(self.A==func)] = func(self.output_dict)
+            tmp_A[np.where(self.A==func)] = func(cur_output)
+            # print(f'Set matrix \n {tmp_A} \n to {np.where(self.A==func)}')
         return tmp_A
+
+    @property
+    def is_nonlinear(self):
+        # Check if an entry of A-matrix is a function. If so, it is non-linear
+        for entry in self.A.flatten():
+            if callable(entry):
+                return True
+        return False
+
 
     @property
     def output_dict(self):
@@ -249,7 +253,7 @@ class EulerForward(StateSpaceModelling):
         A & B, since the observation order changes the shape of those matrices
     """
     def __post_init__(self):
-        # if self.is_nonlinear():
+        # if self.is_nonlinear:
         self._A_new = self.A*self.Ts + self._ident # New A matrix
         self._B_new = self.B*self.Ts # New B matrix
 
@@ -418,8 +422,13 @@ class Heun(StateSpaceModelling):
     """
 
     def __post_init__(self):
+        if self.is_nonlinear:
+            # Temp. placeholder, A gets overwritten by non-linear state later
+            tmp_A = np.zeros(self.A.shape)
+        else:
+            tmp_A = self.A
         self._euler_forward = EulerForward(
-            A=self.A,
+            A=tmp_A,
             B=self.B,
             input_sig=self.input_sig,
             input_time=self.input_time,
@@ -438,17 +447,20 @@ class Heun(StateSpaceModelling):
         # "f_n1" means f(t,y) at t-1, "f_n" means f(t,y) at t 
         
         # Predictor calculation
-        if self.is_nonlinear():
-            tmp_A_pred = self.tmp_nonlin_result_matrix(
-                self.output_dict[idx-1]
+        if self.is_nonlinear:
+            cur_output = OrderedDict(
+                (key, value[idx-1]) for key, value in self.output_dict.items()
             )
+            tmp_A_pred = self.tmp_nonlin_result_matrix(cur_output)
             self._euler_forward.A = tmp_A_pred
         ŷ_n, f_n1 = self._euler_forward.run_one_sample(idx)
-
         # Corrector Calculation
         tmp_A_corr = self.tmp_nonlin_result_matrix(
-                ŷ_n
-            ) if self.is_nonlinear() else self.A
+                OrderedDict(zip(self.obs_order, ŷ_n))
+            ) if self.is_nonlinear else self.A
+        if idx > 2000 and idx < 2010:
+            print(f'Is Nonlinear: {self.is_nonlinear}')
+            print(tmp_A_corr)
         f_n = tmp_A_corr @ ŷ_n + self.B*self.input_sig[idx]
         y_n = self._output_matrix[idx-1] + .5*self.Ts*(f_n + f_n1) 
         return y_n
