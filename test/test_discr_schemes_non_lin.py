@@ -28,11 +28,10 @@ def non_lin_kms(tmp_output, ):
 # ----------------------------------------------------------------------------
 # General variables
 fig_size = (6.4, 4.5)
-freq = np.arange(1, 2e3, )
 fs = 48000
 Ts = 1/fs
 
-sig_dur = .5
+sig_dur = 2
 sig_type = 'sweep' # ['dirac', 'sine', 'sweep']
 
 plot_win_dur = .4 # 200e-3 # 50ms [s]
@@ -62,6 +61,7 @@ elif sig_type == 'sweep':
         f2=f2,
         fs=fs,
         approx_dur=sig_dur,
+        apply_fade_to=None,
     )
     t, u_in = sweep.get_sweep_signal()
     t = t[:-1]
@@ -86,14 +86,13 @@ obs_order = [
     'x',
     'v',
 ]
-A = np.array(
+A_lin = np.array(
     [
         [-Re/Le,    0,              -Bl/Le  ],
         [0,         0,              1       ],
         [Bl/Mms,    -Kms/Mms,       -Rms/Mms]
     ]
 )
-
 A_nonlin = np.array(
     [
         [-Re/Le,    0,              -Bl/Le  ],
@@ -102,46 +101,8 @@ A_nonlin = np.array(
     ]
 )
 
-
-
 B = np.array([1/Le, 0, 0, ])
 
-eb = st_sp.EulerBackward(
-    A=A,
-    B=B,
-    input_sig=u_in,
-    input_time=t,
-    obs_order = obs_order,
-)
-ef = st_sp.EulerForward(
-    A=A,
-    B=B,
-    input_sig=u_in,
-    input_time=t,
-    obs_order = obs_order,
-)
-bil = st_sp.Bilinear(
-    A=A,
-    B=B,
-    input_sig=u_in,
-    input_time=t,
-    obs_order = obs_order,
-)
-ab = st_sp.AdamBashforth(
-    A=A,
-    B=B,
-    input_sig=u_in,
-    input_time=t,
-    obs_order = obs_order,
-    order=3,
-)
-heun_lin = st_sp.Heun(
-    A=A,
-    B=B,
-    input_sig=u_in,
-    input_time=t,
-    obs_order = obs_order,
-)
 heun_nonlin = st_sp.Heun(
     A=A_nonlin,
     B=B,
@@ -149,39 +110,33 @@ heun_nonlin = st_sp.Heun(
     input_time=t,
     obs_order = obs_order,
 )
-
-eb.run_over_input()
-ef.run_over_input()
-bil.run_over_input()
-ab.run_over_input()
-heun_lin.run_over_input()
+heun_lin = st_sp.Heun(
+    A=A_lin,
+    B=B,
+    input_sig=u_in,
+    input_time=t,
+    obs_order = obs_order,
+)
 heun_nonlin.run_over_input()
+heun_lin.run_over_input()
+
+# ----------------------------------------------------------------------------
+# Sweep Post-Processign
+_, _, freq_Hs_non_lin, Hs_non_lin, Hs_non_lin_arg = sweep.get_hhfrfs(
+    y=1e3*heun_nonlin.output_dict['x'],
+    n_harms=3,
+    len_irs=2**12,
+)
+_, _, freq_Hs_lin, Hs_lin, Hs_lin_arg = sweep.get_hhfrfs(
+    y=1e3*heun_lin.output_dict['x'],
+    n_harms=3,
+    len_irs=2**12,
+)
 
 fig_t, ax_t = al_plt.plot_time(
     t = t[:plot_win_len],
-    data = 1e3*ab.output_dict['x'][:plot_win_len],
-    label = 'AB 3rd',
-)
-al_plt.plot_time(
-    t = t[:plot_win_len],
-    data = 1e3*ef.output_dict['x'][:plot_win_len],
-    label = 'FW Euler',
-    fig=fig_t,
-    ax=ax_t,
-)
-al_plt.plot_time(
-    t = t[:plot_win_len],
-    data = 1e3*eb.output_dict['x'][:plot_win_len],
-    label = 'BW Euler',
-    fig=fig_t,
-    ax=ax_t,
-)
-al_plt.plot_time(
-    t = t[:plot_win_len],
-    data = 1e3*bil.output_dict['x'][:plot_win_len],
-    label = 'Bil.',
-    fig=fig_t,
-    ax=ax_t,
+    data = 1e3*heun_nonlin.output_dict['x'][:plot_win_len],
+    label = 'Heun Non-Lin.',
 )
 al_plt.plot_time(
     t = t[:plot_win_len],
@@ -190,16 +145,30 @@ al_plt.plot_time(
     fig=fig_t,
     ax=ax_t,
 )
-al_plt.plot_time(
-    t = t[:plot_win_len],
-    data = 1e3*heun_nonlin.output_dict['x'][:plot_win_len],
-    label = 'Heun Non-Lin.',
-    fig=fig_t,
-    ax=ax_t,
-)
-ylims = max(abs(1e3*eb.output_dict['x']))
+ylims = max(abs(1e3*heun_nonlin.output_dict['x']))
 ax_t.set(
     ylim=[-ylims, ylims],
     ylabel='Displacement [mm]'
 )
+
+
+# fig_f, ax_mag_f, ax_arg_f = al_plt.plot_mag_phase(
+#     freq_h = freq_Hs_non_lin,
+#     magnitude = 20*np.log10(Hs_non_lin.transpose()),
+#     phase_deg = np.unwrap(np.angle(Hs_non_lin_arg.transpose()))/np.pi*180,
+#     label = 'Heun Non-Lin.',
+#     xscale='log',
+# )
+fig_f, ax_mag_f, ax_arg_f = al_plt.plot_mag_phase(
+    freq_h = freq_Hs_lin,
+    magnitude = 20*np.log10(Hs_lin.transpose()),
+    phase_deg = np.unwrap(np.angle(Hs_lin_arg.transpose()))/np.pi*180,
+    label = 'Heun Lin.',
+    xscale='log',
+)
+ax_mag_f.legend(
+    ('1st L', '2nd L', '3rd L', ),
+    loc='upper right',
+)
+
 plt.show(block=False)

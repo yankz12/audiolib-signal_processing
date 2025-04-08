@@ -458,9 +458,6 @@ class Heun(StateSpaceModelling):
         tmp_A_corr = self.tmp_nonlin_result_matrix(
                 OrderedDict(zip(self.obs_order, ŷ_n))
             ) if self.is_nonlinear else self.A
-        if idx > 2000 and idx < 2010:
-            print(f'Is Nonlinear: {self.is_nonlinear}')
-            print(tmp_A_corr)
         f_n = tmp_A_corr @ ŷ_n + self.B*self.input_sig[idx]
         y_n = self._output_matrix[idx-1] + .5*self.Ts*(f_n + f_n1) 
         return y_n
