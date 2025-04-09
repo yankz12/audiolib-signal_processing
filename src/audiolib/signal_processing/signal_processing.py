@@ -47,11 +47,9 @@ class ExpSweep():
         if self.apply_fade_to:
             self._len_fade_in  = int(self.dur_fade_in*self.fs)
             self._len_fade_out = int(self.dur_fade_out*self.fs)
-            print(self.apply_fade_to)
         else:
             self._len_fade_in  = None 
             self._len_fade_out = None
-            print('None')
 
         self._L = self.approx_dur/np.log(self.f2/self.f1)
 

@@ -21,21 +21,14 @@ Test Implementation fo Novaks Exponential Sweep by
 # ----------------------------------------------------------------------------
 # Sweep definitions
 fs = 48000
-f1 = 2e3
-f2 = 20e3
+f1 = 1e3
+f2 = 8e3
 dur = 1
 apply_fade_to = 'both'
 len_irs = 2**13
 n_harms = 3
 
-# ----------------------------------------------------------------------------
-# Linear test filter definition 
-fir_len = 100
-fir_cutoff = fs/4
-fir = sc_sp.firwin(numtaps=fir_len, cutoff=fir_cutoff, fs=fs,)
 
-w, h = sc_sp.freqz(b=fir, a=[1,0])
-freq_freqz = w/np.pi*(fs/2)
 
 # ----------------------------------------------------------------------------
 # Sweep creation
@@ -51,8 +44,8 @@ sss_sweep = sss.signal
 
 # ----------------------------------------------------------------------------
 # Convolution of sweep and linear test filter
-y = sc_sp.lfilter(b = fir, a = [1], x = s_sweep, )
-y_sss = sc_sp.lfilter(b = fir, a = [1], x = sss_sweep, )
+y = s_sweep + 0.025*s_sweep**2 + 0.025*s_sweep**3
+y_sss = sss_sweep + 0.025*sss_sweep**2 + 0.025*sss_sweep**3
 
 # ----------------------------------------------------------------------------
 # Extraction of higher harmonic frequency functions
@@ -68,11 +61,11 @@ Hs_sss = (
     sss.separate_IR(h_sss, N=n_harms, n_samples=len_irs)
 )
 Hs = np.array([
-    Hs_t*np.exp(-1j*freq_Hs*2*np.pi*3*len_irs/2/fs) for idx, Hs_t in enumerate(Hs)
+    Hs_t*np.exp(-1j*freq_Hs*2*np.pi*len_irs/2/fs) for Hs_t in Hs
 ]) # TODO: Fix! Undo the shift of IRs by Novak in order to get proper Phase response.
 
 Hs_sss = np.array([
-    Hs_t*np.exp(-1j*freq_sss*2*np.pi*len_irs/2/fs) for idx, Hs_t in enumerate(Hs_sss)
+    Hs_t*np.exp(-1j*freq_sss*2*np.pi*len_irs/2/fs) for Hs_t in Hs_sss
 ])
 
 # ----------------------------------------------------------------------------
@@ -84,21 +77,13 @@ fig, ax_mag, ax_arg = al_plt.plot_mag_phase(
     xscale='log',
 )
 al_plt.plot_mag_phase(
-    freq_h=freq_freqz,
-    magnitude = 20*np.log10(abs(h)),
-    phase_deg = np.angle(h)/np.pi*180,
+    freq_h=freq_sss,
+    magnitude = 20*np.log10(abs(Hs_sss.transpose())),
+    phase_deg = np.angle(Hs_sss.transpose())/np.pi*180,
     fig = fig,
     ax_mag=ax_mag,
     ax_arg=ax_arg,
 )
-# al_plt.plot_mag_phase(
-#     freq_h=freq_sss,
-#     magnitude = 20*np.log10(abs(Hs_sss.transpose())),
-#     phase_deg = np.angle(Hs_sss.transpose())/np.pi*180,
-#     fig = fig,
-#     ax_mag=ax_mag,
-#     ax_arg=ax_arg,
-# )
 ax_mag.axvline(
     x=f1,
     ymin=ax_mag.get_ylim()[0],
