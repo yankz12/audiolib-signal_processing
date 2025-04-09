@@ -37,13 +37,10 @@ sweep = ExpSweep(
     len_irs = len_irs,
 )
 t_sweep, s_sweep = sweep.get_sweep_signal()
-sss = SynchSweptSine(f1=f1, f2=f2, T=dur, fs=fs, fade=[int(0.01*fs), int(0.02*fs)])
-sss_sweep = sss.signal
 
 # ----------------------------------------------------------------------------
 # Convolution of sweep and linear test filter
 y = s_sweep + 0.025*s_sweep**2 + 0.025*s_sweep**3
-y_sss = sss_sweep + 0.025*sss_sweep**2 + 0.025*sss_sweep**3
 
 # ----------------------------------------------------------------------------
 # Extraction of higher harmonic frequency functions
