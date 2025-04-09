@@ -4,6 +4,8 @@ import scipy.signal as scsp
 from dataclasses import dataclass
 from scipy.fftpack import fftshift
 
+import pdb
+
 @dataclass
 class ExpSweep():
     """
@@ -32,14 +34,21 @@ class ExpSweep():
         Duration of fade-in window in seconds, ignored if apply_fade_to=='None'
     dur_fade_out: float, defaults to 0.02
         Duration of fade-out window in seconds, ignored if apply_fade_to=='None'
+    num_harmonics : int, defaults to 3
+        Number of HHFRFs to be extracted
+    len_irs : int, defaults to 2**12
+        Length of the returned impulse responses of the HHFRFs
+    
     """
     f1 : float
     f2: float
     fs : int
     approx_dur: float
     apply_fade_to : str = 'both'
-    dur_fade_in : float = .01
+    dur_fade_in : float =  .01
     dur_fade_out : float = .02
+    num_harmonics : int = 3
+    len_irs : int = 2**12
 
     def __post_init__(self, ):
         if self.apply_fade_to:
@@ -71,57 +80,110 @@ class ExpSweep():
         s = np.sin(2*np.pi*self.f1*self._L*np.exp(t/self._L)) # generated swept-sine signal
 
         if self.apply_fade_to:
-            s = self._apply_fade(s, where='both')
+            s = self._apply_fade(s, where=self.apply_fade_to)
 
         return t, s,
 
-    def get_hhfrfs(self, y, n_harms, len_irs = 2**12, ):
-        fft_len = int(2**np.ceil(np.log2(len(y))))
-        f_axis = np.linspace(0, self.fs/2, num=round(fft_len/2)+1) # frequency axis
-        Y = np.fft.rfft(y, fft_len)/self.fs
+    def Xinv(self, Npts):
+        ''' calculates Xinv = 1/X, where X is the Fourier Transform of the swept-sine  '''
+        import warnings
+        warnings.filterwarnings("ignore")
+        # suppress warnings temporarily (log of zero in Xinv definition)
 
-        # definition of the inferse filter in spectral domain 
-        # (Novak et al., "Synchronized swept-sine: Theory, application, and implementation." 
-        # Journal of the Audio Engineering Society 63.10 (2015): 786-798. Eq.(43)):
-        SI = 2*np.sqrt(f_axis/self._L)*np.exp(
-            -1j*2*np.pi*f_axis*self._L*(1-np.log(f_axis/self.f1)) + 1j*np.pi/4
-        )
-        SI[0] = 0j
-        # first Nyquist zone 
-        H = Y*SI
+        # definition of the inferse filter in spectral domain
+        # (Novak et al., "Synchronized swept-sine: Theory, application, and implementation."
+        # Journal of the Audio Engineering Society 63.10 (2015): 786-798.
+        # Eq.(43))
+        f_axis = self.f_axis(Npts)
+        Xinv = 2*np.sqrt(f_axis/self._L)*np.exp(-1j*2*np.pi *
+            f_axis*self._L*(1-np.log(f_axis/self.f1)) + 1j*np.pi/4)
+        Xinv[0] = 0j
 
-        # ifft
-        h = np.fft.irfft(H)
+        warnings.filterwarnings("default")
+        return Xinv
 
-        dt = self._L*np.log(np.arange(1,n_harms + 1))*self.fs  # positions of higher orders up to N
-        dt_rem = dt - np.around(dt) # The time lags may be non-integer in samples, the non integer delay must be applied later
-        shft = round(len_irs/2)          # number of samples to make an artificail delay
-        h_pos = np.hstack((h, h[0:shft + len_irs - 1]))  # periodic impulse response
-        # separation of higher orders 
-        hs = np.zeros((n_harms, len_irs))
-        t_hs = np.arange(
-            0,
-            np.round(len_irs - 1)/self.fs,
-            1/self.fs,
-        )  # time axis
-        axe_w = np.linspace(0, np.pi, num=int(len_irs/2+1)); # frequency axis 
+    def getIR(self, y, ):
+        # FFT of the output signal
+        Y = np.fft.rfft(y)/self.fs
+        # complete FRF
+        H = Y*self.Xinv(len(y))
+        return np.fft.irfft(H)
 
-        for k in range(n_harms):
-            hs[k,:] = h_pos[
-                len(h) - int(round(dt[k])) - shft-1:len(h) - int(round(dt[k]))
-                - shft + len_irs - 1
-            ]
-            H_temp = np.fft.rfft(hs[k,:])
+    def f_axis(self, Npts):
+        return np.fft.rfftfreq(Npts, d=1.0/self.fs)
+
+    def separate_IR(self, h, latency=0):
+        ''' Separates the nonlinear contributions in the impulse response h
+            and calculates their Fourier Transform to get the Higher Harmonic
+            Frequency Responses (HHFRs).'''
+        dt = self._L*np.log(np.arange(1, self.num_harmonics+1)) * \
+            self.fs  # positions of higher orders up to N
+        # The time lags may be non-integer in samples, the non integer delay must be applied later
+        dt_rem = dt - np.around(dt)
+
+        # number of samples to make an artificail delay
+        shft = int(self.len_irs/2)
+        # periodic impulse response
+        h_pos = np.concatenate(
+            (h[latency:], h[0:shft + latency + self.len_irs - 1]))
+
+        # separation of higher orders
+        hs = np.zeros((self.num_harmonics, self.len_irs))
+
+        w_normalized = np.fft.rfftfreq(self.len_irs, d=1.0/(2*np.pi))
+        for k in range(self.num_harmonics):
+            st  = len(h) - int(round(dt[k])) - shft - 1
+            end = st + self.len_irs
+            hs[k, :] = h_pos[st:end]
+            H_temp = np.fft.rfft(hs[k, :])
 
             # Non integer delay application
-            H_temp = H_temp * np.exp(-1j*dt_rem[k]*axe_w)
-            hs[k,:] = np.fft.irfft(H_temp)
+            H_temp = H_temp * np.exp(-1j*dt_rem[k]*w_normalized)
+            hs[k, :] = np.fft.irfft(H_temp)
 
         # Higher Harmonics
-        freq_Hs = axe_w/(np.pi)*self.fs/2
+        freq = self.f_axis(len(hs[0]))
         Hs = np.fft.rfft(hs)
+        return freq, Hs, hs, dt, 
 
-        return t_hs, hs, freq_Hs, Hs, 
+    def get_hhfrfs(self, y, ):
+        hs = self.getIR(y) # the full impulse response
+        freq, Hs, hs, dt = self.separate_IR(hs)    # separatef HHFRs
+        t = np.arange(0, np.round(len(hs[0]))/self.fs,1/self.fs)  # time axis
+        # Hs = Hs*np.exp(-1j*freq*2*np.pi*len_irs/2/self.fs)
+
+        return t, hs, freq, Hs, dt,
+
+    def revert_delay(self, Hs, ):
+        """
+        Reverts the delay of len_irs/2 in frequency domain in order to have
+        correct phase response of the system under study. get_hhfrfs()
+        returns the IRs centered in the applied window of len_irs for
+        post-processing of the IRs e.g. convolution with other signals.
+        However, this falsifies the phase response of the system under study.
+        Therefore, the delay should be reverted in case that the system is
+        to be studied instead of being post-processed.
+
+        Hs_reverted = Hs * e^(-jw*phi),
+        with phi being len_irs/2
+
+        Parameters
+        ----------
+        Hs : np.ndarray
+            matrix containing the delayed complex-valued FRFs of all harmonics
+
+        Returns
+        -------
+        Hs_reverted : np.ndarray
+            Matrix with HHFRFs without delay of len_irs/2
+        """
+        Hs_reverted = np.array([
+            Hs_t*np.exp(
+                -1j*2*np.pi*self.f_axis(self.len_irs)/self.fs*(self.len_irs/2)
+            )
+            for Hs_t in Hs
+        ])
+        return Hs_reverted
 
     def _apply_fade(self, sweep, where, ):
         """
@@ -147,6 +209,13 @@ class ExpSweep():
                 ) / 2
             )
         return sweep
+    
+    @property
+    def final_dur(self):
+        # Formula (32) in Novak, 2015
+        k = int(np.round(self.f1*self.approx_dur/(np.log(self.f2/self.f1))))
+        T = k*np.log(self.f2/self.f1)/self.f1
+        return T
 
 
 def get_rfft_spec(x, fs, Nfft=None):

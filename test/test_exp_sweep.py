@@ -4,33 +4,27 @@ import numpy as np
 import scipy.signal as sc_sp
 
 from audiolib.signal_processing import ExpSweep
+from SynchSweptSine import SynchSweptSine
+
 
 """
 Test Implementation fo Novaks Exponential Sweep by
-    1. calculate b-coeffs of FIR low-pass @ fs/4 cutoff
-    2. Create sweep signal starting at 2 kHz
-    2. convolute filter with sweep signal
-    3. extract HHFRFs 
+    1. Create sweep signal sig
+    2. Apply non-linear system by
+        y = sig + 0.025*sig**2 + 0.015*sig**3
+    3. extract and plot HHFRFs 
 """
-
-
-plt.close('all')
 
 # ----------------------------------------------------------------------------
 # Sweep definitions
 fs = 48000
-f1 = 2e3
-f2 = 20e3
-dur = 5
+f1 = 1e3
+f2 = 8e3
+dur = 1
 apply_fade_to = 'both'
-len_irs = 2**12
-n_harms = 1
+len_irs = 2**13
+n_harms = 3
 
-# ----------------------------------------------------------------------------
-# Linear test filter definition 
-fir_len = 100
-fir_cutoff = fs/4
-fir = sc_sp.firwin(numtaps=100, cutoff=fir_cutoff, fs=fs,)
 
 # ----------------------------------------------------------------------------
 # Sweep creation
@@ -39,29 +33,32 @@ sweep = ExpSweep(
     f1=f1,
     f2=f2,
     approx_dur = dur,
+    num_harmonics=n_harms,
+    len_irs = len_irs,
 )
 t_sweep, s_sweep = sweep.get_sweep_signal()
+sss = SynchSweptSine(f1=f1, f2=f2, T=dur, fs=fs, fade=[int(0.01*fs), int(0.02*fs)])
+sss_sweep = sss.signal
 
 # ----------------------------------------------------------------------------
 # Convolution of sweep and linear test filter
-y = sc_sp.lfilter(b = fir, a = [1, 0], x = s_sweep, )
+y = s_sweep + 0.025*s_sweep**2 + 0.025*s_sweep**3
+y_sss = sss_sweep + 0.025*sss_sweep**2 + 0.025*sss_sweep**3
 
 # ----------------------------------------------------------------------------
 # Extraction of higher harmonic frequency functions
-t_hs, hs, freq_Hs, Hs = sweep.get_hhfrfs(
+t_hs, hs, freq_Hs, Hs, dt = sweep.get_hhfrfs(
      y=y,
-     n_harms=n_harms,
-     len_irs = len_irs
 )
-Hs_correct_phase = [Hs_tmp*np.exp(-1j*freq_Hs*np.pi*len_irs/fs) for Hs_tmp in Hs]
-Hs_correct_phase = np.array(Hs_correct_phase)
+Hs = sweep.revert_delay(Hs)
 
 # ----------------------------------------------------------------------------
 # Plotting higher harmonic frequency functions
 fig, ax_mag, ax_arg = al_plt.plot_mag_phase(
     freq_h=freq_Hs,
     magnitude = 20*np.log10(abs(Hs.transpose())),
-    phase_deg = np.unwrap(np.angle(Hs_correct_phase.transpose()))/np.pi*180,
+    phase_deg = np.angle(Hs.transpose())/np.pi*180,
+    xscale='log',
 )
 ax_mag.axvline(
     x=f1,
@@ -69,15 +66,14 @@ ax_mag.axvline(
     ymax=ax_mag.get_ylim()[1],
     c='k',
 )
-ax_mag.axvline(
-    x=fir_cutoff,
-    ymin=ax_mag.get_ylim()[0],
-    ymax=ax_mag.get_ylim()[1],
-    c='r',
-)
 ax_mag.legend(
-    ('1st harmonic', 'Sweep start freq', 'Filter Cutoff'),
-    loc='upper right',
+    ('1st harm', '2nd harm', '3rd harm', 'Sweep start freq',),
+    loc='center',
 )
-ax_mag.set_xlim(0, fs/2)
+ax_mag.set(
+    xlim=(500, fs/2),
+    title=r'$y = x + 0.25x^2 + 0.25x^3$'
+)
+ax_mag.set_xlim(500, fs/2)
+
 plt.show(block=False)
