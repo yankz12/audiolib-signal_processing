@@ -34,6 +34,11 @@ class ExpSweep():
         Duration of fade-in window in seconds, ignored if apply_fade_to=='None'
     dur_fade_out: float, defaults to 0.02
         Duration of fade-out window in seconds, ignored if apply_fade_to=='None'
+    num_harmonics : int, defaults to 3
+        Number of HHFRFs to be extracted
+    len_irs : int, defaults to 2**12
+        Length of the returned impulse responses of the HHFRFs
+    
     """
     f1 : float
     f2: float
@@ -42,6 +47,8 @@ class ExpSweep():
     apply_fade_to : str = 'both'
     dur_fade_in : float =  .01
     dur_fade_out : float = .02
+    num_harmonics : int = 3
+    len_irs : int = 2**12
 
     def __post_init__(self, ):
         if self.apply_fade_to:
@@ -105,28 +112,28 @@ class ExpSweep():
     def f_axis(self, Npts):
         return np.fft.rfftfreq(Npts, d=1.0/self.fs)
 
-    def separate_IR(self, h, N=3, n_samples=2**12, latency=0):
+    def separate_IR(self, h, latency=0):
         ''' Separates the nonlinear contributions in the impulse response h
             and calculates their Fourier Transform to get the Higher Harmonic
             Frequency Responses (HHFRs).'''
-        dt = self._L*np.log(np.arange(1, N+1)) * \
+        dt = self._L*np.log(np.arange(1, self.num_harmonics+1)) * \
             self.fs  # positions of higher orders up to N
         # The time lags may be non-integer in samples, the non integer delay must be applied later
         dt_rem = dt - np.around(dt)
 
         # number of samples to make an artificail delay
-        shft = int(n_samples/2)
+        shft = int(self.len_irs/2)
         # periodic impulse response
         h_pos = np.concatenate(
-            (h[latency:], h[0:shft + latency + n_samples - 1]))
+            (h[latency:], h[0:shft + latency + self.len_irs - 1]))
 
         # separation of higher orders
-        hs = np.zeros((N, n_samples))
+        hs = np.zeros((self.num_harmonics, self.len_irs))
 
-        w_normalized = np.fft.rfftfreq(n_samples, d=1.0/(2*np.pi))
-        for k in range(N):
+        w_normalized = np.fft.rfftfreq(self.len_irs, d=1.0/(2*np.pi))
+        for k in range(self.num_harmonics):
             st  = len(h) - int(round(dt[k])) - shft - 1
-            end = st + n_samples
+            end = st + self.len_irs
             hs[k, :] = h_pos[st:end]
             H_temp = np.fft.rfft(hs[k, :])
 
@@ -139,13 +146,44 @@ class ExpSweep():
         Hs = np.fft.rfft(hs)
         return freq, Hs, hs, dt, 
 
-    def get_hhfrfs(self, y, n_harms, len_irs = 2**12, ):
+    def get_hhfrfs(self, y, ):
         hs = self.getIR(y) # the full impulse response
-        freq, Hs, hs, dt = self.separate_IR(hs, N=n_harms, n_samples=len_irs)    # separatef HHFRs
+        freq, Hs, hs, dt = self.separate_IR(hs)    # separatef HHFRs
         t = np.arange(0, np.round(len(hs[0]))/self.fs,1/self.fs)  # time axis
         # Hs = Hs*np.exp(-1j*freq*2*np.pi*len_irs/2/self.fs)
 
         return t, hs, freq, Hs, dt,
+
+    def revert_delay(self, Hs, ):
+        """
+        Reverts the delay of len_irs/2 in frequency domain in order to have
+        correct phase response of the system under study. get_hhfrfs()
+        returns the IRs centered in the applied window of len_irs for
+        post-processing of the IRs e.g. convolution with other signals.
+        However, this falsifies the phase response of the system under study.
+        Therefore, the delay should be reverted in case that the system is
+        to be studied instead of being post-processed.
+
+        Hs_reverted = Hs * e^(-jw*phi),
+        with phi being len_irs/2
+
+        Parameters
+        ----------
+        Hs : np.ndarray
+            matrix containing the delayed complex-valued FRFs of all harmonics
+
+        Returns
+        -------
+        Hs_reverted : np.ndarray
+            Matrix with HHFRFs without delay of len_irs/2
+        """
+        Hs_reverted = np.array([
+            Hs_t*np.exp(
+                -1j*2*np.pi*self.f_axis(self.len_irs)/self.fs*(self.len_irs/2)
+            )
+            for Hs_t in Hs
+        ])
+        return Hs_reverted
 
     def _apply_fade(self, sweep, where, ):
         """

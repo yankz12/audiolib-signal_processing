@@ -9,14 +9,11 @@ from SynchSweptSine import SynchSweptSine
 
 """
 Test Implementation fo Novaks Exponential Sweep by
-    1. calculate b-coeffs of FIR low-pass @ fs/4 cutoff
-    2. Create sweep signal starting at 2 kHz
-    2. convolute filter with sweep signal
-    3. extract HHFRFs 
+    1. Create sweep signal sig
+    2. Apply non-linear system by
+        y = sig + 0.025*sig**2 + 0.015*sig**3
+    3. extract and plot HHFRFs 
 """
-
-
-# plt.close('all')
 
 # ----------------------------------------------------------------------------
 # Sweep definitions
@@ -29,7 +26,6 @@ len_irs = 2**13
 n_harms = 3
 
 
-
 # ----------------------------------------------------------------------------
 # Sweep creation
 sweep = ExpSweep(
@@ -37,9 +33,11 @@ sweep = ExpSweep(
     f1=f1,
     f2=f2,
     approx_dur = dur,
+    num_harmonics=n_harms,
+    len_irs = len_irs,
 )
 t_sweep, s_sweep = sweep.get_sweep_signal()
-sss = SynchSweptSine(f1=f1, f2=f2, T=dur, fs=fs, fade=[0, 0])
+sss = SynchSweptSine(f1=f1, f2=f2, T=dur, fs=fs, fade=[int(0.01*fs), int(0.02*fs)])
 sss_sweep = sss.signal
 
 # ----------------------------------------------------------------------------
@@ -51,22 +49,8 @@ y_sss = sss_sweep + 0.025*sss_sweep**2 + 0.025*sss_sweep**3
 # Extraction of higher harmonic frequency functions
 t_hs, hs, freq_Hs, Hs, dt = sweep.get_hhfrfs(
      y=y,
-     n_harms=n_harms,
-     len_irs = len_irs
 )
-
-h_sss = sss.getIR(y=y) # the full impulse response
-freq_sss = np.fft.rfftfreq(len_irs, 1/fs) # Freq. axis
-Hs_sss = (
-    sss.separate_IR(h_sss, N=n_harms, n_samples=len_irs)
-)
-Hs = np.array([
-    Hs_t*np.exp(-1j*freq_Hs*2*np.pi*len_irs/2/fs) for Hs_t in Hs
-]) # TODO: Fix! Undo the shift of IRs by Novak in order to get proper Phase response.
-
-Hs_sss = np.array([
-    Hs_t*np.exp(-1j*freq_sss*2*np.pi*len_irs/2/fs) for Hs_t in Hs_sss
-])
+Hs = sweep.revert_delay(Hs)
 
 # ----------------------------------------------------------------------------
 # Plotting higher harmonic frequency functions
@@ -76,29 +60,20 @@ fig, ax_mag, ax_arg = al_plt.plot_mag_phase(
     phase_deg = np.angle(Hs.transpose())/np.pi*180,
     xscale='log',
 )
-al_plt.plot_mag_phase(
-    freq_h=freq_sss,
-    magnitude = 20*np.log10(abs(Hs_sss.transpose())),
-    phase_deg = np.angle(Hs_sss.transpose())/np.pi*180,
-    fig = fig,
-    ax_mag=ax_mag,
-    ax_arg=ax_arg,
-)
 ax_mag.axvline(
     x=f1,
     ymin=ax_mag.get_ylim()[0],
     ymax=ax_mag.get_ylim()[1],
     c='k',
 )
-ax_mag.axvline(
-    x=fir_cutoff,
-    ymin=ax_mag.get_ylim()[0],
-    ymax=ax_mag.get_ylim()[1],
-    c='r',
-)
 ax_mag.legend(
-    ('1st harm', '2nd harm', '3rd harm', 'freqz', 'Sweep start freq', 'Filter Cutoff'),
+    ('1st harm', '2nd harm', '3rd harm', 'Sweep start freq',),
     loc='center',
 )
-ax_mag.set_xlim(1e3, fs/2)
+ax_mag.set(
+    xlim=(500, fs/2),
+    title=r'$y = x + 0.25x^2 + 0.25x^3$'
+)
+ax_mag.set_xlim(500, fs/2)
+
 plt.show(block=False)
