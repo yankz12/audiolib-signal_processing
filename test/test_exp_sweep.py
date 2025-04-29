@@ -20,6 +20,7 @@ Test Implementation fo Novaks Exponential Sweep by
 fs = 48000
 f1 = 1e3
 f2 = 8e3
+sig_ampl = 1
 dur = 1
 apply_fade_to = 'both'
 len_irs = 2**13
@@ -32,6 +33,7 @@ sweep = ExpSweep(
     fs=fs,
     f1=f1,
     f2=f2,
+    ampl=sig_ampl,
     approx_dur = dur,
     num_harmonics=n_harms,
     len_irs = len_irs,
@@ -50,12 +52,23 @@ t_hs, hs, freq_Hs, Hs, dt = sweep.get_hhfrfs(
 Hs = sweep.revert_delay(Hs)
 
 # ----------------------------------------------------------------------------
+# Frequency limits of harmonics
+first_harm_lim = [f1, f2]
+sec_harm_lim = [2*f1, 2*f2]
+third_harm_lim = [3*f1, 3*f2]
+first_harm_lim_idcs = [np.argmin(np.abs(freq_Hs - f)) for f in first_harm_lim]
+sec_harm_lim_idcs = [np.argmin(np.abs(freq_Hs - f)) for f in sec_harm_lim]
+third_harm_lim_idcs = [np.argmin(np.abs(freq_Hs - f)) for f in third_harm_lim]
+lim_idcs = [first_harm_lim_idcs, sec_harm_lim_idcs, third_harm_lim_idcs, ]
+
+# ----------------------------------------------------------------------------
 # Plotting higher harmonic frequency functions
 fig, ax_mag, ax_arg = al_plt.plot_mag_phase(
-    freq_h=freq_Hs,
+    f=freq_Hs,
     magnitude = 20*np.log10(abs(Hs.transpose())),
     phase_deg = np.angle(Hs.transpose())/np.pi*180,
-    xscale='log',
+    phase_xlim_idcs = lim_idcs,
+    xscale = 'log',
 )
 ax_mag.axvline(
     x=f1,

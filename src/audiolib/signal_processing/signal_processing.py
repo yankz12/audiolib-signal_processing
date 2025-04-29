@@ -44,6 +44,7 @@ class ExpSweep():
     f2: float
     fs : int
     approx_dur: float
+    ampl : float = 1
     apply_fade_to : str = 'both'
     dur_fade_in : float =  .01
     dur_fade_out : float = .02
@@ -77,7 +78,7 @@ class ExpSweep():
             np.round(self.fs * self.approx_dur - 1)/self.fs,
             1/self.fs,
         )  # time axis
-        s = np.sin(2*np.pi*self.f1*self._L*np.exp(t/self._L)) # generated swept-sine signal
+        s = self.ampl*np.sin(2*np.pi*self.f1*self._L*np.exp(t/self._L)) # generated swept-sine signal
 
         if self.apply_fade_to:
             s = self._apply_fade(s, where=self.apply_fade_to)
@@ -95,7 +96,7 @@ class ExpSweep():
         # Journal of the Audio Engineering Society 63.10 (2015): 786-798.
         # Eq.(43))
         f_axis = self.f_axis(Npts)
-        Xinv = 2*np.sqrt(f_axis/self._L)*np.exp(-1j*2*np.pi *
+        Xinv = self.ampl*2*np.sqrt(f_axis/self._L)*np.exp(-1j*2*np.pi *
             f_axis*self._L*(1-np.log(f_axis/self.f1)) + 1j*np.pi/4)
         Xinv[0] = 0j
 
@@ -147,6 +148,26 @@ class ExpSweep():
         return freq, Hs, hs, dt, 
 
     def get_hhfrfs(self, y, ):
+        """
+        Parameters
+        ----------
+        y : np.ndarray
+            Output signal of system under study
+        
+        Returns
+        -------
+        t : np.ndarray
+            Time vector of impulse responses
+        hs : np.ndarray
+            Matrix of higher harmonic impulse responses (HHIRs)
+        freq : np.ndarray
+            Frequency vector of higher harmonic frequency responses (HHFRFs)
+        Hs : np.ndarray
+            Higher harmonic frequency responses (HHFRFs)
+        dt : list
+            List of time delays applied to each impulse response in order to
+            be synchronized (Novak, 2015)
+        """
         hs = self.getIR(y) # the full impulse response
         freq, Hs, hs, dt = self.separate_IR(hs)    # separatef HHFRs
         t = np.arange(0, np.round(len(hs[0]))/self.fs,1/self.fs)  # time axis
@@ -177,12 +198,14 @@ class ExpSweep():
         Hs_reverted : np.ndarray
             Matrix with HHFRFs without delay of len_irs/2
         """
-        Hs_reverted = np.array([
-            Hs_t*np.exp(
-                -1j*2*np.pi*self.f_axis(self.len_irs)/self.fs*(self.len_irs/2)
-            )
-            for Hs_t in Hs
-        ])
+        # Hs_reverted = np.array([
+        #     Hs_t*np.exp(-1j*2*np.pi*self.f_axis(self.len_irs)/self.fs*(self.len_irs/2)
+        #     )
+        #     for Hs_t in Hs
+        # ])
+        Hs_reverted = Hs*np.exp(
+            -1j*2*np.pi*self.f_axis(self.len_irs)/self.fs*3*(self.len_irs)/2
+        )
         return Hs_reverted
 
     def _apply_fade(self, sweep, where, ):
