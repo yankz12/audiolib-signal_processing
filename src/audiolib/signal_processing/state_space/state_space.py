@@ -4,7 +4,17 @@ from abc import ABC, abstractmethod
 from collections import OrderedDict
 from dataclasses import dataclass
 
+import sys
+import types
+
 import pdb
+
+def print_progress_bar(iteration, total, length=50):
+    percent = ("{0:.1f}").format(100 * (iteration / float(total)))
+    filled_length = int(length * iteration // total)
+    bar = '█' * filled_length + '-' * (length - filled_length)
+    sys.stdout.write(f'\rProgress: |{bar}| {percent}% Complete')
+    sys.stdout.flush()
 
 @dataclass(kw_only=True)
 class StateSpaceModelling(ABC):
@@ -462,3 +472,56 @@ class Heun(StateSpaceModelling):
         y_n = self._output_matrix[idx-1] + .5*self.Ts*(f_n + f_n1) 
         return y_n
     
+
+@dataclass(kw_only=True)
+class BilinearNewton(StateSpaceModelling):
+    J : types.FunctionType
+    tol : float = 1e-6
+    max_iter : int = 50
+
+    def run_one_sample(self, idx):
+        q_k_dict = OrderedDict(
+            (key, value[idx]) for key, value in self.output_dict.items()
+        ) # Previous state as initial guess for approximation
+        q_k1_dict = OrderedDict(
+            (key, value[idx-1]) for key, value in self.output_dict.items()
+        )
+        q_k = self._output_matrix[idx]
+        q_k1 = self._output_matrix[idx-1]
+        u_k = self.input_sig[idx].copy()
+        u_k1 = self.input_sig[idx-1].copy()
+        error = np.inf
+        iter = 0
+        
+        I = np.eye(len(self.A))
+
+        while error > self.tol:
+            A_x = self.tmp_nonlin_result_matrix(q_k_dict)
+            prev_A_x = self.tmp_nonlin_result_matrix(q_k1_dict)
+
+            G = (I - self.Ts/2*A_x)@q_k - (self.Ts/2*prev_A_x + I)@q_k1 - self.Ts/2*self.B*(u_k + u_k1)
+            cur_jacobian = self.J(q_k_dict, q_k1_dict, self.Ts)
+            delta_q = -np.linalg.inv(cur_jacobian) @ G
+            q_k = q_k + delta_q
+            q_k_dict = self._update_dict(q_k_dict, q_k)
+            error = np.linalg.norm(delta_q)
+            iter += 1
+            if iter > self.max_iter:
+                raise RuntimeError(f"Newton-Raphson did not converge at index {idx}.")
+            
+        return q_k
+        
+    
+    def run_over_input(self):
+        self._validate_input_sig() # TODO: Move to super class setter of input?
+        total_len = len(self._output_matrix)-1
+        for idx in range(1, total_len):
+            y_n = self.run_one_sample(idx)
+            self._output_matrix[idx] = y_n
+            print_progress_bar(idx+1, total_len)
+
+    def _update_dict(self, ordered_dict, array, ):
+        for key, value in zip(ordered_dict.keys(), array):
+            ordered_dict[key] = value
+
+        return ordered_dict

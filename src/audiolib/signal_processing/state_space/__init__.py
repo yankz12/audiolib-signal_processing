@@ -4,6 +4,7 @@ from .state_space import (
     AdamBashforth,
     Bilinear,
     Heun,
+    BilinearNewton,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     'AdamBashforth',
     'Bilinear',
     'Heun',
+    'BilinearNewton',
 ]

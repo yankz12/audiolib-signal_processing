@@ -23,7 +23,25 @@ def non_lin_0(non_lin_x, non_lin_y, cur_x, ):
     return cur_val
 
 def non_lin_kms(tmp_output, ):
-    return -Kms*(1 + 1e5*tmp_output['x']**2)/Mms
+    return -Kms*(1 + 3e4*tmp_output['x']**2)/Mms
+
+def J_bil(q, q_k1, Ts, ):
+    x = q['x']
+    x_k1 = q_k1['x'] # Previous displacement
+    a = 3e4
+    Re = 4.07
+    Le = 0.5e-3 
+    Bl = 6.986  
+    Mms = 18.484e-3
+    Cms = 0.828e-3
+    Kms = 1/Cms
+    Rms = 0.565
+    non_lin_entry_0 = Ts*Kms/2/Mms*(3*a*x**2 + a*x*x_k1 + 1)
+    return np.array([
+        [1+Ts*Re/2/Le,  0,              Ts*Bl/2/Le      ],
+        [0,             1,              -Ts/2           ],
+        [-Ts*Bl/2/Mms,  non_lin_entry_0,   1+Ts*Rms/2/Mms  ],
+    ])
 
 # ----------------------------------------------------------------------------
 # General variables
@@ -123,6 +141,15 @@ heun_lin = st_sp.Heun(
     input_time=t,
     obs_order = obs_order,
 )
+bil_newton = st_sp.BilinearNewton(
+    A=A_nonlin,
+    B=B,
+    input_sig=u_in,
+    input_time=t,
+    obs_order = obs_order,
+    J = J_bil,
+)
+bil_newton.run_over_input()
 heun_nonlin.run_over_input()
 heun_lin.run_over_input()
 
@@ -154,15 +181,21 @@ al_plt.plot_time(
     fig=fig_t,
     ax=ax_t,
 )
+al_plt.plot_time(
+    t = t, #[:plot_win_len],
+    data = 1e3*bil_newton.output_dict['x'][:-1],# [:plot_win_len],
+    label = 'Bil. Newton Non-Lin.',
+    fig=fig_t,
+    ax=ax_t,
+)
 ylims = max(abs(1e3*heun_lin.output_dict['x']))
 ax_t.set(
     ylim=[-ylims, ylims],
     ylabel='Displacement [mm]'
 )
 
-
 fig_f, ax_mag_f, ax_arg_f = al_plt.plot_mag_phase(
-    freq_h = freq_Hs_lin,
+    f = freq_Hs_lin,
     magnitude = 20*np.log10(np.abs(Hs_non_lin)).transpose(),
     phase_deg = np.angle(Hs_non_lin.transpose())/np.pi*180,
     xscale='log',
@@ -180,7 +213,7 @@ ax_arg_f.set(
 #     ax_arg=ax_arg_f,
 # )
 ax_mag_f.legend(
-    ('Non-Lin.', 'Lin.', ),
+    ('1st', '2nd', '3rd',),
 )
 
 plt.show(block=False)
