@@ -7,54 +7,69 @@ import warnings
 
 from audiolib.signal_processing import ExpSweep
 
-def non_lin_0(non_lin_x, non_lin_y, cur_x, ):
-    # TODO: Move to state space class
-    cur_idx = np.argmin(np.abs(cur_x - non_lin_x))
-    cur_val = non_lin_y[cur_idx]
-    cur_val_out_range = (
-        (cur_x < 0 and cur_x < 2*non_lin_x[0]) or
-        (cur_x > 0 and cur_x > 2*non_lin_x[-1])
-    )
-    if cur_val_out_range:
-        warnings.warn(
-            'Observation Value twice as big as range of non-linear ' +
-            'value table: Extend table or reduce input signal amplitude!'
-        )
-    return cur_val
-
 def non_lin_kms(tmp_output, ):
     return -Kms*(1 + 3e4*tmp_output['x']**2)/Mms
 
-def J_bil(q, q_k1, Ts, ):
-    x = q['x']
-    x_k1 = q_k1['x'] # Previous displacement
-    a = 3e4
-    Re = 4.07
-    Le = 0.5e-3 
-    Bl = 6.986  
-    Mms = 18.484e-3
-    Cms = 0.828e-3
-    Kms = 1/Cms
-    Rms = 0.565
-    non_lin_entry_0 = Ts*Kms/2/Mms*(3*a*x**2 + a*x*x_k1 + 1)
-    return np.array([
-        [1+Ts*Re/2/Le,  0,              Ts*Bl/2/Le      ],
-        [0,             1,              -Ts/2           ],
-        [-Ts*Bl/2/Mms,  non_lin_entry_0,   1+Ts*Rms/2/Mms  ],
-    ])
+class NonLinearDriverNR():
+    Re  : float = 4.07
+    Le  : float = 0.5e-3 
+    Bl  : float = 6.986  
+    Mms : float = 18.484e-3
+    Cms : float = 0.828e-3
+    Kms : float = 1/Cms
+    Rms : float = 0.565
+    a   : float = 3e4 # Kms non-linearity factor
+
+    def __post_init__(self):
+        pass
+
+    def Kms_non_lin(self, q, ):
+        x = q['x']
+        return self.Kms*(1 + self.a*x**2)
+
+    def J(self, q, q_k, Ts, ):
+        x = q['x']
+        x_k = q_k['x']
+        non_lin_entry_0 = Ts*self.Kms/2/self.Mms*(3*self.a*x**2 + self.a*x*x_k + 1)
+        return np.array([
+            [1+Ts*self.Re/2/self.Le,  0,                  Ts*self.Bl/2/self.Le      ],
+            [0,             1,                  -Ts/2           ],
+            [-Ts*self.Bl/2/self.Mms,  non_lin_entry_0,   1+Ts*self.Rms/2/self.Mms   ],
+        ])
+    
+    @property
+    def A(self):
+        """
+        q in non-linear function is state vector as OrderedDict with the
+        according name of the unit as key. F.ex. q["x"] is displacement,
+        q["i"] is current, etc.
+        """
+        return np.array(
+            [
+                [-self.Re/self.Le,  0,                                          -self.Bl/self.Le    ],
+                [0,                 0,                                          1                   ],
+                [self.Bl/self.Mms,  lambda q : -self.Kms_non_lin(q)/self.Mms,   -self.Rms/self.Mms  ],
+            ]
+        )        
+
+    @property
+    def B(self):
+        return np.array([1/self.Le, 0, 0, ])
+
 
 # ----------------------------------------------------------------------------
 # General variables
+non_lin_driver_nr = NonLinearDriverNR()
+
 fig_size = (6.4, 4.5)
 fs = 48000
 Ts = 1/fs
 
-sig_dur = 3
-sig_type = 'sweep' # ['dirac', 'sine', 'sweep']
+sig_dur = 1
+sig_type = 'sine' # ['dirac', 'sine', 'sweep']
 n_harms = 3
 apply_fade_to = None
 len_irs = 2**12
-
 
 plot_win_dur = .4 # 200e-3 # 50ms [s]
 plot_win_len = int(np.round(plot_win_dur*fs))
@@ -142,12 +157,12 @@ heun_lin = st_sp.Heun(
     obs_order = obs_order,
 )
 bil_newton = st_sp.BilinearNewton(
-    A=A_nonlin,
-    B=B,
-    input_sig=u_in,
-    input_time=t,
+    A = non_lin_driver.A,
+    B = non_lin_driver.B,
+    input_sig = u_in,
+    input_time = t,
     obs_order = obs_order,
-    J = J_bil,
+    J = non_lin_driver.J,
 )
 bil_newton.run_over_input()
 heun_nonlin.run_over_input()
@@ -204,14 +219,6 @@ ax_arg_f.set(
     ylim=[-180, 180],
     xlim=[f1, f2]
 )
-# al_plt.plot_mag_phase(
-#     freq_h = freq_Hs_lin,
-#     magnitude = 20*np.log10(np.abs(Hs_lin).transpose()),
-#     phase_deg = np.unwrap(np.angle(Hs_lin.transpose()))/np.pi*180,
-#     fig=fig_f,
-#     ax_mag=ax_mag_f,
-#     ax_arg=ax_arg_f,
-# )
 ax_mag_f.legend(
     ('1st', '2nd', '3rd',),
 )
