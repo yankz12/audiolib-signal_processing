@@ -503,20 +503,20 @@ class BilinearNewton(StateSpaceModelling):
         error = np.inf
         iter = 0
         I = np.eye(len(q_k))
-        prev_A_x = self.tmp_nonlin_result_matrix(q_k1_dict)
+        prev_A_x = self.tmp_nonlin_result_matrix(q_k1_dict) if self.is_nonlinear else self.A
 
         # --------------------------------------------------------------------
         # Start Optimization loop
         while error > self.tol:
-            A_x = self.tmp_nonlin_result_matrix(q_k_dict)
+            A_x = self.tmp_nonlin_result_matrix(q_k_dict) if self.is_nonlinear else self.A
 
             G = (
                 (I - self.Ts/2*A_x)@q_k
                 - (self.Ts/2*prev_A_x + I)@q_k1
                 - self.Ts/2*self.B*(u_k + u_k1)
-            )
+            ).astype('float64')
             cur_jacobian = self.J(q_k_dict, q_k1_dict, self.Ts)
-            delta_q = -np.linalg.inv(cur_jacobian) @ G
+            delta_q = -np.linalg.solve(cur_jacobian, G)
             q_k = q_k + delta_q
             q_k_dict = self._update_dict(q_k_dict, q_k)
             error = np.linalg.norm(delta_q)
