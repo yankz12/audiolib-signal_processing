@@ -4,8 +4,6 @@ import numpy as np
 import scipy.signal as sc_sp
 
 from audiolib.signal_processing import ExpSweep
-from SynchSweptSine import SynchSweptSine
-
 
 """
 Test Implementation fo Novaks Exponential Sweep by
@@ -23,7 +21,7 @@ f2 = 8e3
 sig_ampl = 1
 dur = 1
 apply_fade_to = 'both'
-len_irs = 2**13
+len_irs = 2**12
 n_harms = 3
 
 
@@ -41,15 +39,17 @@ sweep = ExpSweep(
 t_sweep, s_sweep = sweep.get_sweep_signal()
 
 # ----------------------------------------------------------------------------
-# Convolution of sweep and linear test filter
-y = s_sweep + 0.025*s_sweep**2 + 0.025*s_sweep**3
+# Non-Linear System
+y = s_sweep + 0.25*s_sweep**2 + 0.25*s_sweep**3
 
 # ----------------------------------------------------------------------------
 # Extraction of higher harmonic frequency functions
-t_hs, hs, freq_Hs, Hs, dt = sweep.get_hhfrfs(
-     y=y,
-)
+t_hs, hs, freq_Hs, Hs, dt = sweep.get_hhfrfs(y=y)
 Hs = sweep.revert_delay(Hs)
+
+# ----------------------------------------------------------------------------
+# Calc THD
+freq_thd, thd = sweep.get_thd(y=y)
 
 # ----------------------------------------------------------------------------
 # Frequency limits of harmonics
@@ -85,5 +85,14 @@ ax_mag.set(
     title=r'$y = x + 0.25x^2 + 0.25x^3$'
 )
 ax_mag.set_xlim(500, fs/2)
+
+# ----------------------------------------------------------------------------
+# Plotting THD
+fig, ax = al_plt.plot_rfft_freq(
+    f = freq_thd,
+    data = thd,
+    xscale='log',
+)
+ax.set(ylabel = 'THD [%]')
 
 plt.show(block=False)

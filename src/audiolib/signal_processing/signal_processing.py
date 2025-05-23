@@ -175,6 +175,23 @@ class ExpSweep():
 
         return t, hs, freq, Hs, dt,
 
+    def get_thd(self, y, ):
+        _, _, freq, Hs, _, = self.get_hhfrfs(y)
+        idx_f1 = np.argmax(freq >= self.f1)  # Find the starting index for f1
+        idx_f2 = np.argmax(freq >  self.f2)  # Find the ending index for f2
+        f_indexes = np.arange(idx_f1, idx_f2)  # f_indexes for the range f1 to f2
+        freq_thd = freq[idx_f1:idx_f2]
+
+        # Prepare the numerator and denominator for THD calculation
+        numerator = 0
+        for harmonic in range(2, self.num_harmonics+1):
+            numerator += np.abs(Hs[harmonic-1, harmonic*f_indexes])**2
+        denumerator = np.abs(Hs[0, f_indexes])
+
+        # Compute THD
+        THD = 100 * np.sqrt(numerator) / denumerator
+        return freq_thd, THD
+
     def revert_delay(self, Hs, ):
         """
         Reverts the delay of len_irs/2 in frequency domain in order to have
