@@ -61,6 +61,7 @@ sec_harm_lim_idcs = [np.argmin(np.abs(freq_Hs - f)) for f in sec_harm_lim]
 third_harm_lim_idcs = [np.argmin(np.abs(freq_Hs - f)) for f in third_harm_lim]
 lim_idcs = [first_harm_lim_idcs, sec_harm_lim_idcs, third_harm_lim_idcs, ]
 
+
 # ----------------------------------------------------------------------------
 # Plotting higher harmonic frequency functions
 fig, ax_mag, ax_arg = al_plt.plot_mag_phase(

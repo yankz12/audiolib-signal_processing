@@ -1,3 +1,4 @@
+import jax.numpy
 import numpy as np 
 import scipy.signal as scsp
 
@@ -257,6 +258,124 @@ class ExpSweep():
         T = k*np.log(self.f2/self.f1)/self.f1
         return T
 
+
+
+def apply_window(sig, fs, win_type, win_dur, ):
+    """
+    Assumes symmetrical window. Len of each fade (in/out) will be win_dur/2.
+
+    Parameters
+    ----------
+    sig : array
+        Signal to be windowed
+    fs : int
+        Sampling frequency
+    win_type : str
+        Type of window that will be applied. Has to be of scipy window type
+        https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.get_window.html
+    win_dur : float
+        Duration of applied window. Len of each fade (in/out) will be win_dur/2.
+
+    Returns 
+    -------
+    win_sig : array
+        Windowed signal
+    """
+    win_len = int(np.round(win_dur*fs))
+    win_len_is_uneven = win_len % 2
+    if win_len_is_uneven:
+        win_len += 1 # To ensure a 1 at maximum of window
+    win = scsp.get_window(window=win_type, Nx=win_len)
+    win_max = np.argmax(win)
+    fade_in = win[:win_max]
+    fade_out = np.flip(fade_in)
+    # Apply window:
+    if isinstance(sig, jax.numpy.ndarray):
+        sig = sig.at[:int(win_len/2)].set(sig[:int(win_len/2)]*fade_in)
+        sig = sig.at[-int(win_len/2):].set(sig[-int(win_len/2):]*fade_out)
+    else:
+        sig[:int(win_len/2)] *= fade_in
+        sig[-int(win_len/2):] *= fade_out
+    return sig
+
+
+def thd_from_time_sig(
+        x,
+        fs,
+        win_dur = 0.01,
+        num_harms = 5,
+        tolerance = 2,
+    ):
+    """ 
+    Calculate THD from time signal using blackman-harris window. Always
+    chooses frequency of maximum amplitude as f0.
+
+    THD = √(Y(f0*2)^2 + Y(f0*3)^2 + ... + Y(f0*n)^2))
+            ----------------------------------------
+                            Y(f0)
+
+    Parameters
+    ----------
+    x : iterable (e.g. np.ndarray)
+        Time signal to calculate THD from
+    win_dur : float, optional, defaults to 0.01 [s] (10 [ms])
+        Length of the flat-top window
+    num_harms : int, optional, defaults to 5
+        Number of harmonics to include in THD calculation. Is automatically
+        limited if n*freq_under_study > fs/2. Fundamental = zeroth harmonic
+        --> e.g. if num_harms == 5, maximum frequency to be included will
+            be 5*
+    tolerance : int, defaults to 2 [Hz]
+        Include frequency bins around analyzed frequencies in order to get
+        leaked energy in the specturm into the THD value. E.g. when analyzing
+        f1, the calc will include all bins from f1 - tolerance to
+        f1 + tolerance
+
+    Returns
+    -------
+    thd : float
+        Total Harmonic distortion in percentage
+    """
+    window = 'blackman'
+    windowed_x = apply_window(x, fs=fs, win_type=window, win_dur=win_dur, )
+    freq, spec = get_rfft_spec(windowed_x, fs, )
+    freq_accuracy = freq[1] - freq[0]
+    if tolerance < freq_accuracy:
+        tolerance = freq_accuracy
+        print(79*'-')
+        print(f'THD Calculation:\n Tolerance set to frequency res {tolerance} Hz.')
+        print(79*'-')
+    
+    freq_under_study_idx = np.argmax(spec)
+    freq_under_study = freq[freq_under_study_idx]
+
+    if num_harms*freq_under_study > fs/2:
+        num_harms = int(fs/freq_under_study/2)
+        print(79*'-')
+        print(
+            f'THD calc: Limiting number of harmonics to {num_harms} ' + 
+            'to stay within Nyquist range.'
+        )
+        print(79*'-')
+
+    print(f'Calc THD at {freq_under_study} Hz for {num_harms} harmonics.')
+
+    thd_num = 0
+
+    for harm in np.arange(1,num_harms+1)+1:
+        low_bound = (freq_under_study*harm) - tolerance
+        high_bound = (freq_under_study*harm) + tolerance
+        low_bound_idx = np.argmin(np.abs(freq - low_bound))
+        high_bound_idx = np.argmin(np.abs(freq - high_bound))
+        thd_num += np.sum(spec[low_bound_idx:high_bound_idx])**2
+
+    thd_num = np.sqrt(thd_num)
+    thd_denum = spec[freq_under_study_idx]
+    return 100 * thd_num / thd_denum
+
+
+
+    
 
 def get_rfft_spec(x, fs, Nfft=None):
     if Nfft is None:
