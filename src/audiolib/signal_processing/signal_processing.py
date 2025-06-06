@@ -1,3 +1,4 @@
+import audiolib.plotting as al_plt
 import jax.numpy
 import numpy as np 
 import scipy.signal as scsp
@@ -302,9 +303,11 @@ def apply_window(sig, fs, win_type, win_dur, ):
 def thd_from_time_sig(
         x,
         fs,
+        apply_win = True,
         win_dur = 0.01,
         num_harms = 5,
-        tolerance = 2,
+        tol_perc = 2,
+        plot_spec = False,
     ):
     """ 
     Calculate THD from time signal using blackman-harris window. Always
@@ -325,7 +328,8 @@ def thd_from_time_sig(
         limited if n*freq_under_study > fs/2. Fundamental = zeroth harmonic
         --> e.g. if num_harms == 5, maximum frequency to be included will
             be 5*
-    tolerance : int, defaults to 2 [Hz]
+    tol_perc : float, defaults to 10 (= 10 %)
+        Tolerance percentage:
         Include frequency bins around analyzed frequencies in order to get
         leaked energy in the specturm into the THD value. E.g. when analyzing
         f1, the calc will include all bins from f1 - tolerance to
@@ -336,17 +340,24 @@ def thd_from_time_sig(
     thd : float
         Total Harmonic distortion in percentage
     """
-    window = 'blackman'
-    windowed_x = apply_window(x, fs=fs, win_type=window, win_dur=win_dur, )
-    freq, spec = get_rfft_spec(windowed_x, fs, )
+    if apply_win:
+        window = 'blackman'
+        x = apply_window(x, fs=fs, win_type=window, win_dur=win_dur, )
+    freq, spec = get_rfft_spec(x, fs, )
+
+    base_freq = np.argmax(abs(spec))
+
     freq_accuracy = freq[1] - freq[0]
-    if tolerance < freq_accuracy:
-        tolerance = freq_accuracy
+    tol_hz = base_freq*tol_perc
+    if tol_hz < freq_accuracy:
+        tol_perc = freq_accuracy/base_freq
         print(79*'-')
-        print(f'THD Calculation:\n Tolerance set to frequency res {tolerance} Hz.')
+        print(
+            'THD Calculation:\n Tolerance too small: ' + 
+            f'set to minimum possible tolerance {np.round(tol_perc, 3)} %.')
         print(79*'-')
     
-    freq_under_study_idx = np.argmax(spec)
+    freq_under_study_idx = np.argmax(abs(spec))
     freq_under_study = freq[freq_under_study_idx]
 
     if num_harms*freq_under_study > fs/2:
@@ -361,16 +372,33 @@ def thd_from_time_sig(
     print(f'Calc THD at {freq_under_study} Hz for {num_harms} harmonics.')
 
     thd_num = 0
-
+    eval_freqs = []
+    bounds = []
     for harm in np.arange(1,num_harms+1)+1:
-        low_bound = (freq_under_study*harm) - tolerance
-        high_bound = (freq_under_study*harm) + tolerance
+        eval_freq = harm*freq_under_study
+        low_bound = eval_freq - tol_hz
+        high_bound = eval_freq + tol_hz
         low_bound_idx = np.argmin(np.abs(freq - low_bound))
         high_bound_idx = np.argmin(np.abs(freq - high_bound))
-        thd_num += np.sum(spec[low_bound_idx:high_bound_idx])**2
+
+        print(f'Max @ f = {np.round(eval_freq, 2)} Hz')
+        thd_num += sum(abs(spec[low_bound_idx:high_bound_idx]))**2
+        eval_freqs.append(eval_freq)
+        bounds.append([freq[low_bound_idx], freq[high_bound_idx]])
 
     thd_num = np.sqrt(thd_num)
-    thd_denum = spec[freq_under_study_idx]
+    thd_denum = abs(spec[freq_under_study_idx])
+
+    if plot_spec:
+        fig, ax = al_plt.plot_rfft_freq(
+            f = freq,
+            data = 20*np.log10(abs(spec)),
+            xscale = 'log',
+        )
+        ax.set(title='THD Spectrum')
+        ylims = ax.get_ylim()
+        ax.fill_between(freq, )
+
     return 100 * thd_num / thd_denum
 
 
