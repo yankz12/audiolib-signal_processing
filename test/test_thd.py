@@ -19,7 +19,7 @@ thd = al_sc.thd_from_time_sig(
     x,
     fs,
     num_harms = num_harms,
-    tolerance=.01,
+    tol_hz = 10,
     plot_spec = True,
 )
 thd_by_hand = 100*np.sqrt(0.1**2 + 0.05**2 + 0.05**2 + 0.05**2)

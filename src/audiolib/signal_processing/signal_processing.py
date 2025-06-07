@@ -306,7 +306,7 @@ def thd_from_time_sig(
         apply_win = True,
         win_dur = 0.01,
         num_harms = 5,
-        tol_perc = 2,
+        tol_hz = 10,
         plot_spec = False,
     ):
     """ 
@@ -348,13 +348,11 @@ def thd_from_time_sig(
     base_freq = np.argmax(abs(spec))
 
     freq_accuracy = freq[1] - freq[0]
-    tol_hz = base_freq*tol_perc
     if tol_hz < freq_accuracy:
-        tol_perc = freq_accuracy/base_freq
         print(79*'-')
         print(
             'THD Calculation:\n Tolerance too small: ' + 
-            f'set to minimum possible tolerance {np.round(tol_perc, 3)} %.')
+            f'set to minimum possible tolerance {np.round(tol_hz, 2)} Hz.')
         print(79*'-')
     
     freq_under_study_idx = np.argmax(abs(spec))
@@ -380,6 +378,7 @@ def thd_from_time_sig(
         high_bound = eval_freq + tol_hz
         low_bound_idx = np.argmin(np.abs(freq - low_bound))
         high_bound_idx = np.argmin(np.abs(freq - high_bound))
+        print(f'Summing from {freq[low_bound_idx]} to {freq[high_bound_idx]}')
 
         print(f'Max @ f = {np.round(eval_freq, 2)} Hz')
         thd_num += sum(abs(spec[low_bound_idx:high_bound_idx]))**2
@@ -387,17 +386,22 @@ def thd_from_time_sig(
         bounds.append([freq[low_bound_idx], freq[high_bound_idx]])
 
     thd_num = np.sqrt(thd_num)
-    thd_denum = abs(spec[freq_under_study_idx])
+    low_bound =  freq_under_study - tol_hz
+    high_bound = freq_under_study + tol_hz
+    low_bound_idx = np.argmin(np.abs(freq - low_bound))
+    high_bound_idx = np.argmin(np.abs(freq - high_bound))
+    bounds.append([freq[low_bound_idx], freq[high_bound_idx]])
+    thd_denum = sum(abs(spec[low_bound_idx:high_bound_idx]))
 
     if plot_spec:
         fig, ax = al_plt.plot_rfft_freq(
             f = freq,
             data = 20*np.log10(abs(spec)),
-            xscale = 'log',
+            xscale = 'lin',
         )
         ax.set(title='THD Spectrum')
         ylims = ax.get_ylim()
-        ax.fill_between(freq, )
+        _ = [ax.fill_betweenx(ylims, bound[0], bound[1], alpha=.2) for bound in bounds]
 
     return 100 * thd_num / thd_denum
 
