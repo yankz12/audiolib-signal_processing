@@ -6,8 +6,6 @@ import scipy.signal as scsp
 from dataclasses import dataclass
 from scipy.fftpack import fftshift
 
-import pdb
-
 @dataclass
 class ExpSweep():
     """
@@ -349,17 +347,22 @@ def thd_from_time_sig(
     thd : float
         Total Harmonic distortion in percentage
     """
-        # Check if the target frequency is in the frequency bins
-    
+
+    # ------------------------------------------------------------------------
+    # Window application
     if apply_win:
         window = 'blackman'
         x = apply_window(x, fs=fs, win_type=window, win_dur=win_dur, )
 
+    # ------------------------------------------------------------------------
+    # Spectrum calculation and gathering of first frequency infos
     freq, spec = get_rfft_spec(x, fs, )
     freq_under_study_idx = np.argmax(abs(spec))
     freq_under_study = freq[freq_under_study_idx]
     freq_accuracy = freq[1] - freq[0]
 
+    # ------------------------------------------------------------------------
+    # Check if f_sine is perfectly hit or not in spectrum (leakage)
     if f_sine in freq:
         print(f"Frequency {f_sine} Hz hits frequency bin perfectly.")
     else:
@@ -369,6 +372,8 @@ def thd_from_time_sig(
             f"Re-define your frequency or signal length."
         )
 
+    # ------------------------------------------------------------------------
+    # Integrity checks of inputs (tolerance, Nyquist etc.)
     if (tol_hz < freq_accuracy) and (tol_hz != 0):
         print(79*'-')
         print(
@@ -384,7 +389,6 @@ def thd_from_time_sig(
             'single frequency bins only.'
         )
         print(79*'-')
-
     if num_harms*freq_under_study > fs/2:
         num_harms = int(fs/freq_under_study/2)
         print(79*'-')
@@ -394,10 +398,10 @@ def thd_from_time_sig(
         )
         print(79*'-')
 
+    # ------------------------------------------------------------------------
+    # THD calculation
     print(f'Calc THD at {freq_under_study} Hz for {num_harms} harmonics.')
-
     thd_num = 0
-    eval_freqs = []
     bounds = []
     all_bounds = []
 
@@ -428,6 +432,8 @@ def thd_from_time_sig(
         bounds.append([freq[low_bound_idx], freq[high_bound_idx]])
         thd_denum = sum(abs(spec[low_bound_idx:high_bound_idx]))
 
+    # ------------------------------------------------------------------------
+    # Plotting
     if plot_spec:
         fig, ax = al_plt.plot_rfft_freq(
             f = freq,
@@ -450,9 +456,6 @@ def thd_from_time_sig(
     return 100 * thd_num / thd_denum
 
 
-
-    
-
 def get_rfft_spec(x, fs, Nfft=None):
     if Nfft is None:
         Nfft = len(x)
@@ -460,10 +463,12 @@ def get_rfft_spec(x, fs, Nfft=None):
     spec = np.abs(np.fft.rfft(x, Nfft))
     return freq, spec
 
+
 def get_rfft_power_spec(x, fs, Nfft=None):
     freq, spec = get_rfft_spec(x, fs, Nfft)
     Sxx = spec**2
     return freq, Sxx
+
 
 def get_ir_from_rfft(spec, fs, Nfft):
     """
@@ -491,6 +496,7 @@ def get_ir_from_rfft(spec, fs, Nfft):
     t = np.arange(-int(Nfft/2),int(Nfft/2)) / fs
     return t, centered_ir
 
+
 def get_ir_from_rawdata(x, fs, Nfft):
     """
     Computes real-valued IR from rawdata set.
@@ -515,6 +521,7 @@ def get_ir_from_rawdata(x, fs, Nfft):
     _, spec = get_rfft_spec(x, fs, Nfft)
     t, centered_ir = get_ir_from_rfft(spec, fs, Nfft)
     return t, centered_ir
+
 
 def get_msc(sig_0, sig_1, fs, blocklen, ):
     # TODO: Test
