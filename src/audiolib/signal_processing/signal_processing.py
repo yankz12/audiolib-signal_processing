@@ -260,21 +260,6 @@ class ExpSweep():
         return T
 
 
-def _find_two_closest_bins(f, f_axis, ):
-    """
-    Findet die zwei nächsten Frequenz-Bins zu einer gegebenen Frequenz im Spektrum.
-
-    :param frequenz: Die Ziel-Frequenz, für die die Bins gesucht werden.
-    :param spektrum_binning: Ein Array oder eine Liste mit den Frequenz-Bins des Spektrums.
-    :return: Ein Tuple mit den Indizes der zwei nächsten Bins.
-    """
-    # Berechne die Differenzen zwischen der Ziel-Frequenz und jedem Bin
-    diffs = [abs(f_bin - f) for f_bin in f_axis]
-    # Sortiere die Indizes nach der Differenz
-    sorted_idcs = sorted(range(len(diffs)), key=lambda i: diffs[i])
-    # Die zwei nächsten Bins sind die ersten beiden in der sortierten Liste
-    return sorted_idcs[0], sorted_idcs[1]
-
 def apply_window(sig, fs, win_type, win_dur, ):
     """
     Assumes symmetrical window. Len of each fade (in/out) will be win_dur/2.
@@ -325,12 +310,12 @@ def thd_from_time_sig(
         plot_spec = False,
     ):
     """ 
-    Calculate THD from time signal using blackman-harris window. Always
-    chooses frequency of maximum amplitude as f0.
+    Calculate THD from pure sine time signal using blackman-harris window.
+    Input sine frequency needs to be known beforehand.
 
-    THD = √(Y(f0*2)^2 + Y(f0*3)^2 + ... + Y(f0*n)^2))
-            ----------------------------------------
-                            Y(f0)
+    THD = √(Y(f_sine*2)^2 + Y(f_sine*3)^2 + ... + Y(f_sine*n)^2))
+          -------------------------------------------------------
+                            Y(f_sine)
 
     Parameters
     ----------
@@ -338,22 +323,26 @@ def thd_from_time_sig(
         Time signal to calculate THD from
     fs : int
         Sampling frequency of x
+    f_sine : float
+        Frequency of input sine
     apply_win : bool, defaults to False
         Wether to apply Blackman-Harris window function to x. 
         Blackman-Harris is usually the best window for THD measurements.
     win_dur : float, optional, defaults to 0.01 [s] (10 [ms])
-        Length of the flat-top window
+        Length of the window. Len of each fade (in/out) will be win_dur/2.
     num_harms : int, optional, defaults to 5
         Number of harmonics to include in THD calculation. Is automatically
-        limited if n*freq_under_study > fs/2. Fundamental = zeroth harmonic
+        limited if n*freq_under_study > fs/2. Fundamental = 0th harmonic
         --> e.g. if num_harms == 5, maximum frequency to be included will
-            be 5*
-    tol_perc : float, defaults to 10 (= 10 %)
-        Tolerance percentage:
+            be 5*f_sine
+    tol_hz : float, defaults to 10 (= 10Hz)
+        Tolerance in Hertz:
         Include frequency bins around analyzed frequencies in order to get
         leaked energy in the specturm into the THD value. E.g. when analyzing
         f1, the calc will include all bins from f1 - tolerance to
         f1 + tolerance
+    plot_spec : boolean, defaults to False
+        Plot spectrum of windowed signal or not within harmonic freq. range
 
     Returns
     -------
