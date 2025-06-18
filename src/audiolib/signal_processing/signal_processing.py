@@ -435,14 +435,19 @@ def thd_from_time_sig(
     # ------------------------------------------------------------------------
     # Plotting
     if plot_spec:
+        vals = 20*np.log10(abs(spec))
         fig, ax = al_plt.plot_rfft_freq(
             f = freq,
-            data = 20*np.log10(abs(spec)),
+            data = vals,
             xscale = 'lin',
         )
         ax.set(
             title='THD Spectrum',
-            xlim = [freq_under_study - 10, eval_freq + 10]
+            xlim = [freq_under_study - 10, eval_freq + 10],
+            ylim = [
+                min(vals[freq_under_study_idx:eval_freq_idx]) - 10,
+                max(vals[freq_under_study_idx:eval_freq_idx]) + 10,
+            ]
         )
         
         if tol_hz != 0:
