@@ -260,6 +260,20 @@ class ExpSweep():
         return T
 
 
+def _find_two_closest_bins(f, f_axis, ):
+    """
+    Findet die zwei nächsten Frequenz-Bins zu einer gegebenen Frequenz im Spektrum.
+
+    :param frequenz: Die Ziel-Frequenz, für die die Bins gesucht werden.
+    :param spektrum_binning: Ein Array oder eine Liste mit den Frequenz-Bins des Spektrums.
+    :return: Ein Tuple mit den Indizes der zwei nächsten Bins.
+    """
+    # Berechne die Differenzen zwischen der Ziel-Frequenz und jedem Bin
+    diffs = [abs(f_bin - f) for f_bin in f_axis]
+    # Sortiere die Indizes nach der Differenz
+    sorted_idcs = sorted(range(len(diffs)), key=lambda i: diffs[i])
+    # Die zwei nächsten Bins sind die ersten beiden in der sortierten Liste
+    return sorted_idcs[0], sorted_idcs[1]
 
 def apply_window(sig, fs, win_type, win_dur, ):
     """
@@ -303,7 +317,8 @@ def apply_window(sig, fs, win_type, win_dur, ):
 def thd_from_time_sig(
         x,
         fs,
-        apply_win = True,
+        f_sine,
+        apply_win = False,
         win_dur = 0.01,
         num_harms = 5,
         tol_hz = 10,
@@ -321,6 +336,11 @@ def thd_from_time_sig(
     ----------
     x : iterable (e.g. np.ndarray)
         Time signal to calculate THD from
+    fs : int
+        Sampling frequency of x
+    apply_win : bool, defaults to False
+        Wether to apply Blackman-Harris window function to x. 
+        Blackman-Harris is usually the best window for THD measurements.
     win_dur : float, optional, defaults to 0.01 [s] (10 [ms])
         Length of the flat-top window
     num_harms : int, optional, defaults to 5
@@ -340,23 +360,41 @@ def thd_from_time_sig(
     thd : float
         Total Harmonic distortion in percentage
     """
+        # Check if the target frequency is in the frequency bins
+    
     if apply_win:
         window = 'blackman'
         x = apply_window(x, fs=fs, win_type=window, win_dur=win_dur, )
+
     freq, spec = get_rfft_spec(x, fs, )
-
-    base_freq = np.argmax(abs(spec))
-
-    freq_accuracy = freq[1] - freq[0]
-    if tol_hz < freq_accuracy:
-        print(79*'-')
-        print(
-            'THD Calculation:\n Tolerance too small: ' + 
-            f'set to minimum possible tolerance {np.round(tol_hz, 2)} Hz.')
-        print(79*'-')
-    
     freq_under_study_idx = np.argmax(abs(spec))
     freq_under_study = freq[freq_under_study_idx]
+    freq_accuracy = freq[1] - freq[0]
+
+    if f_sine in freq:
+        print(f"Frequency {f_sine} Hz hits frequency bin perfectly.")
+    else:
+        raise ValueError(
+            f"Input frequency {f_sine} Hz does not hit frequency bin for " +
+            "proper THD amplitude estimation. " + 
+            f"Re-define your frequency or signal length."
+        )
+
+    if (tol_hz < freq_accuracy) and (tol_hz != 0):
+        print(79*'-')
+        print(
+            ' THD Calculation:\n Tolerance too small: ' + 
+            f'set to minimum possible tolerance of ' + 
+            f'{np.round(freq_accuracy, 2)} Hz.\n (= frequency resolution)'
+        )
+        print(79*'-')
+        tol_hz = freq_accuracy
+    if tol_hz == 0:
+        print(
+            'THD calculation: Frequency tolerance is zero, evaluating ' +
+            'single frequency bins only.'
+        )
+        print(79*'-')
 
     if num_harms*freq_under_study > fs/2:
         num_harms = int(fs/freq_under_study/2)
@@ -372,26 +410,34 @@ def thd_from_time_sig(
     thd_num = 0
     eval_freqs = []
     bounds = []
+    all_bounds = []
+
     for harm in np.arange(1,num_harms+1)+1:
         eval_freq = harm*freq_under_study
-        low_bound = eval_freq - tol_hz
-        high_bound = eval_freq + tol_hz
-        low_bound_idx = np.argmin(np.abs(freq - low_bound))
-        high_bound_idx = np.argmin(np.abs(freq - high_bound))
-        print(f'Summing from {freq[low_bound_idx]} to {freq[high_bound_idx]}')
-
-        print(f'Max @ f = {np.round(eval_freq, 2)} Hz')
-        thd_num += sum(abs(spec[low_bound_idx:high_bound_idx]))**2
-        eval_freqs.append(eval_freq)
-        bounds.append([freq[low_bound_idx], freq[high_bound_idx]])
+        eval_freq_idx = np.argmin(np.abs(freq - eval_freq))
+        print(f'Harmonic {harm} @ {np.round(eval_freq, 2)} Hz')
+        if tol_hz == 0:
+            thd_num += abs(spec[eval_freq_idx])**2
+            continue
+        bounds = [eval_freq - tol_hz, eval_freq + tol_hz]
+        bounds_idcs = [
+            np.argmin(np.abs(freq - bounds[0])),
+            np.argmin(np.abs(freq - bounds[1])),
+        ]
+        print(f'Summing from {bounds[0]} to {bounds[1]}')
+        thd_num += sum(abs(spec[bounds_idcs[0]:bounds_idcs[1]]))**2
+        all_bounds.append([bounds[0], bounds[1]])
 
     thd_num = np.sqrt(thd_num)
-    low_bound =  freq_under_study - tol_hz
-    high_bound = freq_under_study + tol_hz
-    low_bound_idx = np.argmin(np.abs(freq - low_bound))
-    high_bound_idx = np.argmin(np.abs(freq - high_bound))
-    bounds.append([freq[low_bound_idx], freq[high_bound_idx]])
-    thd_denum = sum(abs(spec[low_bound_idx:high_bound_idx]))
+    if tol_hz == 0:
+        thd_denum = abs(spec[freq_under_study_idx])
+    else:
+        low_bound =  freq_under_study - tol_hz
+        high_bound = freq_under_study + tol_hz
+        low_bound_idx = np.argmin(np.abs(freq - low_bound))
+        high_bound_idx = np.argmin(np.abs(freq - high_bound))
+        bounds.append([freq[low_bound_idx], freq[high_bound_idx]])
+        thd_denum = sum(abs(spec[low_bound_idx:high_bound_idx]))
 
     if plot_spec:
         fig, ax = al_plt.plot_rfft_freq(
@@ -399,9 +445,18 @@ def thd_from_time_sig(
             data = 20*np.log10(abs(spec)),
             xscale = 'lin',
         )
-        ax.set(title='THD Spectrum')
-        ylims = ax.get_ylim()
-        _ = [ax.fill_betweenx(ylims, bound[0], bound[1], alpha=.2) for bound in bounds]
+        ax.set(
+            title='THD Spectrum',
+            xlim = [freq_under_study - 10, eval_freq + 10]
+        )
+        
+        if tol_hz != 0:
+            ylims = ax.get_ylim()
+            _ = [
+                ax.fill_betweenx(
+                    ylims, bound[0], bound[1], alpha=.35
+                ) for bound in all_bounds
+            ]
 
     return 100 * thd_num / thd_denum
 
