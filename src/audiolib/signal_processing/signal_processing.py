@@ -215,11 +215,6 @@ class ExpSweep():
         Hs_reverted : np.ndarray
             Matrix with HHFRFs without delay of len_irs/2
         """
-        # Hs_reverted = np.array([
-        #     Hs_t*np.exp(-1j*2*np.pi*self.f_axis(self.len_irs)/self.fs*(self.len_irs/2)
-        #     )
-        #     for Hs_t in Hs
-        # ])
         Hs_reverted = Hs*np.exp(
             -1j*2*np.pi*self.f_axis(self.len_irs)/self.fs*3*(self.len_irs)/2
         )
@@ -301,6 +296,7 @@ def thd_from_time_sig(
         x,
         fs,
         f_sine,
+        nfft = None,
         apply_win = False,
         win_dur = 0.01,
         num_harms = 5,
@@ -323,6 +319,9 @@ def thd_from_time_sig(
         Sampling frequency of x
     f_sine : float
         Frequency of input sine
+    nfft : int
+        Number of FFT Points. If nfft > len(x), signal gets zero-padded.
+        If nfft < len(x), then the input is cropped.
     apply_win : bool, defaults to False
         Wether to apply Blackman-Harris window function to x. 
         Blackman-Harris is usually the best window for THD measurements.
@@ -356,21 +355,23 @@ def thd_from_time_sig(
 
     # ------------------------------------------------------------------------
     # Spectrum calculation and gathering of first frequency infos
-    freq, spec = get_rfft_spec(x, fs, )
-    freq_under_study_idx = np.argmax(abs(spec))
-    freq_under_study = freq[freq_under_study_idx]
-    freq_accuracy = freq[1] - freq[0]
+    freq, spec = get_rfft_spec(x, fs, Nfft=nfft, )
 
     # ------------------------------------------------------------------------
-    # Check if f_sine is perfectly hit or not in spectrum (leakage)
-    if f_sine in freq:
-        print(f"Frequency {f_sine} Hz hits frequency bin perfectly.")
-    else:
+    # Check if f_sine is perfectly hit or not in spectrum (prevent leakage)
+    if not f_sine in freq:
+        closest_freq = np.argmin(np.abs(freq - freq_under_study))
         raise ValueError(
             f"Input frequency {f_sine} Hz does not hit frequency bin for " +
-            "proper THD amplitude estimation. " + 
-            f"Re-define your frequency or signal length."
+            f"proper THD amplitude estimation. Next bin is {closest_freq} Hz. " + 
+            f"Re-define your frequency or signal length or nfft."
         )
+    else:
+         print(f"THD: FUT {f_sine} Hz hits frequency bin perfectly.")
+
+    freq_under_study_idx = np.argwhere(freq == f_sine)[0][0]
+    freq_under_study = freq[freq_under_study_idx]
+    freq_accuracy = freq[1] - freq[0]
 
     # ------------------------------------------------------------------------
     # Integrity checks of inputs (tolerance, Nyquist etc.)
@@ -385,8 +386,8 @@ def thd_from_time_sig(
         tol_hz = freq_accuracy
     if tol_hz == 0:
         print(
-            'THD calculation: Frequency tolerance is zero, evaluating ' +
-            'single frequency bins only.'
+            'THD calculation: Frequency tolerance is 0 Hz, evaluating ' +
+            'singular frequency bins only.'
         )
         print(79*'-')
     if num_harms*freq_under_study > fs/2:
@@ -436,7 +437,7 @@ def thd_from_time_sig(
     # Plotting
     if plot_spec:
         vals = 20*np.log10(abs(spec))
-        fig, ax = al_plt.plot_rfft_freq(
+        _, ax = al_plt.plot_rfft_freq(
             f = freq,
             data = vals,
             xscale = 'lin',

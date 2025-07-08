@@ -2,11 +2,10 @@ import audiolib.signal_processing as al_sc
 import matplotlib.pyplot as plt
 import numpy as np
 
-
 dur = 2
 fs = 48000
 t = np.linspace(0, dur, int(dur*fs))
-f0 = 201
+f0 = 30
 num_harms = 4
 
 x = 2*np.sin(2*np.pi*f0*t)
