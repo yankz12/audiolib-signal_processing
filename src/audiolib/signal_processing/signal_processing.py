@@ -1,3 +1,5 @@
+import audiolib.plotting as al_plt
+import jax.numpy
 import numpy as np 
 import scipy.signal as scsp
 
@@ -44,6 +46,7 @@ class ExpSweep():
     f2: float
     fs : int
     approx_dur: float
+    ampl : float = 1
     apply_fade_to : str = 'both'
     dur_fade_in : float =  .01
     dur_fade_out : float = .02
@@ -77,7 +80,7 @@ class ExpSweep():
             np.round(self.fs * self.approx_dur - 1)/self.fs,
             1/self.fs,
         )  # time axis
-        s = np.sin(2*np.pi*self.f1*self._L*np.exp(t/self._L)) # generated swept-sine signal
+        s = self.ampl*np.sin(2*np.pi*self.f1*self._L*np.exp(t/self._L)) # generated swept-sine signal
 
         if self.apply_fade_to:
             s = self._apply_fade(s, where=self.apply_fade_to)
@@ -95,7 +98,7 @@ class ExpSweep():
         # Journal of the Audio Engineering Society 63.10 (2015): 786-798.
         # Eq.(43))
         f_axis = self.f_axis(Npts)
-        Xinv = 2*np.sqrt(f_axis/self._L)*np.exp(-1j*2*np.pi *
+        Xinv = self.ampl*2*np.sqrt(f_axis/self._L)*np.exp(-1j*2*np.pi *
             f_axis*self._L*(1-np.log(f_axis/self.f1)) + 1j*np.pi/4)
         Xinv[0] = 0j
 
@@ -147,12 +150,49 @@ class ExpSweep():
         return freq, Hs, hs, dt, 
 
     def get_hhfrfs(self, y, ):
+        """
+        Parameters
+        ----------
+        y : np.ndarray
+            Output signal of system under study
+        
+        Returns
+        -------
+        t : np.ndarray
+            Time vector of impulse responses
+        hs : np.ndarray
+            Matrix of higher harmonic impulse responses (HHIRs)
+        freq : np.ndarray
+            Frequency vector of higher harmonic frequency responses (HHFRFs)
+        Hs : np.ndarray
+            Higher harmonic frequency responses (HHFRFs)
+        dt : list
+            List of time delays applied to each impulse response in order to
+            be synchronized (Novak, 2015)
+        """
         hs = self.getIR(y) # the full impulse response
         freq, Hs, hs, dt = self.separate_IR(hs)    # separatef HHFRs
         t = np.arange(0, np.round(len(hs[0]))/self.fs,1/self.fs)  # time axis
         # Hs = Hs*np.exp(-1j*freq*2*np.pi*len_irs/2/self.fs)
 
         return t, hs, freq, Hs, dt,
+
+    def get_thd(self, y, ):
+        _, _, freq, Hs, _, = self.get_hhfrfs(y)
+        idx_f1 = np.argmax(freq >= self.f1)  # Find the starting index for f1
+        idx_f2 = np.argmax(freq >  self.f2)  # Find the ending index for f2
+        f_indexes = np.arange(idx_f1, idx_f2)  # f_indexes for the range f1 to f2
+        freq_thd = freq[idx_f1:idx_f2]
+
+        # Prepare the numerator and denominator for THD calculation
+        numerator = 0
+        for harmonic in range(2, self.num_harmonics+1):
+            numerator += np.abs(Hs[harmonic-1, harmonic*f_indexes])**2
+        denumerator = np.abs(Hs[0, f_indexes])
+
+        # Compute THD
+        THD = 100 * np.sqrt(numerator) / denumerator
+        return freq_thd, THD
 
     def revert_delay(self, Hs, ):
         """
@@ -177,12 +217,9 @@ class ExpSweep():
         Hs_reverted : np.ndarray
             Matrix with HHFRFs without delay of len_irs/2
         """
-        Hs_reverted = np.array([
-            Hs_t*np.exp(
-                -1j*2*np.pi*self.f_axis(self.len_irs)/self.fs*(self.len_irs/2)
-            )
-            for Hs_t in Hs
-        ])
+        Hs_reverted = Hs*np.exp(
+            -1j*2*np.pi*self.f_axis(self.len_irs)/self.fs*3*(self.len_irs)/2
+        )
         return Hs_reverted
 
     def _apply_fade(self, sweep, where, ):
@@ -218,6 +255,215 @@ class ExpSweep():
         return T
 
 
+def apply_window(sig, fs, win_type, win_dur, ):
+    """
+    Assumes symmetrical window. Len of each fade (in/out) will be win_dur/2.
+
+    Parameters
+    ----------
+    sig : array
+        Signal to be windowed
+    fs : int
+        Sampling frequency
+    win_type : str
+        Type of window that will be applied. Has to be of scipy window type
+        https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.get_window.html
+    win_dur : float
+        Duration of applied window. Len of each fade (in/out) will be win_dur/2.
+
+    Returns 
+    -------
+    win_sig : array
+        Windowed signal
+    """
+    win_len = int(np.round(win_dur*fs))
+    win_len_is_uneven = win_len % 2
+    if win_len_is_uneven:
+        win_len += 1 # To ensure a 1 at maximum of window
+    win = scsp.get_window(window=win_type, Nx=win_len)
+    win_max = np.argmax(win)
+    fade_in = win[:win_max]
+    fade_out = np.flip(fade_in)
+    # Apply window:
+    if isinstance(sig, jax.numpy.ndarray):
+        sig = sig.at[:int(win_len/2)].set(sig[:int(win_len/2)]*fade_in)
+        sig = sig.at[-int(win_len/2):].set(sig[-int(win_len/2):]*fade_out)
+    else:
+        sig[:int(win_len/2)] *= fade_in
+        sig[-int(win_len/2):] *= fade_out
+    return sig
+
+
+def thd_from_time_sig(
+        x,
+        fs,
+        f_sine,
+        nfft = None,
+        apply_win = False,
+        win_dur = 0.01,
+        num_harms = 5,
+        tol_hz = 10,
+        plot_spec = False,
+    ):
+    """ 
+    Calculate THD from pure sine time signal using blackman-harris window.
+    Input sine frequency needs to be known beforehand.
+
+    THD = √(Y(f_sine*2)^2 + Y(f_sine*3)^2 + ... + Y(f_sine*n)^2))
+          -------------------------------------------------------
+                            Y(f_sine)
+
+    Parameters
+    ----------
+    x : iterable (e.g. np.ndarray)
+        Time signal to calculate THD from
+    fs : int
+        Sampling frequency of x
+    f_sine : float
+        Frequency of input sine
+    nfft : int
+        Number of FFT Points. If nfft > len(x), signal gets zero-padded.
+        If nfft < len(x), then the input is cropped.
+    apply_win : bool, defaults to False
+        Wether to apply Blackman-Harris window function to x. 
+        Blackman-Harris is usually the best window for THD measurements.
+    win_dur : float, optional, defaults to 0.01 [s] (10 [ms])
+        Length of the window. Len of each fade (in/out) will be win_dur/2.
+    num_harms : int, optional, defaults to 5
+        Number of harmonics to include in THD calculation. Is automatically
+        limited if n*freq_under_study > fs/2. Fundamental = 0th harmonic
+        --> e.g. if num_harms == 5, maximum frequency to be included will
+            be 5*f_sine
+    tol_hz : float, defaults to 10 (= 10Hz)
+        Tolerance in Hertz:
+        Include frequency bins around analyzed frequencies in order to get
+        leaked energy in the specturm into the THD value. E.g. when analyzing
+        f1, the calc will include all bins from f1 - tolerance to
+        f1 + tolerance
+    plot_spec : boolean, defaults to False
+        Plot spectrum of windowed signal or not within harmonic freq. range
+
+    Returns
+    -------
+    thd : float
+        Total Harmonic distortion in percentage
+    """
+
+    # ------------------------------------------------------------------------
+    # Window application
+    if apply_win:
+        window = 'blackman'
+        x = apply_window(x, fs=fs, win_type=window, win_dur=win_dur, )
+
+    # ------------------------------------------------------------------------
+    # Spectrum calculation and gathering of first frequency infos
+    freq, spec = get_rfft_spec(x, fs, Nfft=nfft, )
+
+    # ------------------------------------------------------------------------
+    # Check if f_sine is perfectly hit or not in spectrum (prevent leakage)
+    if not f_sine in freq:
+        closest_freq = np.argmin(np.abs(freq - freq_under_study))
+        raise ValueError(
+            f"Input frequency {f_sine} Hz does not hit frequency bin for " +
+            f"proper THD amplitude estimation. Next bin is {closest_freq} Hz. " + 
+            f"Re-define your frequency or signal length or nfft."
+        )
+    else:
+         print(f"THD: FUT {f_sine} Hz hits frequency bin perfectly.")
+
+    freq_under_study_idx = np.argwhere(freq == f_sine)[0][0]
+    freq_under_study = freq[freq_under_study_idx]
+    freq_accuracy = freq[1] - freq[0]
+
+    # ------------------------------------------------------------------------
+    # Integrity checks of inputs (tolerance, Nyquist etc.)
+    if (tol_hz < freq_accuracy) and (tol_hz != 0):
+        print(79*'-')
+        print(
+            ' THD Calculation:\n Tolerance too small: ' + 
+            f'set to minimum possible tolerance of ' + 
+            f'{np.round(freq_accuracy, 2)} Hz.\n (= frequency resolution)'
+        )
+        print(79*'-')
+        tol_hz = freq_accuracy
+    if tol_hz == 0:
+        print(
+            'THD calculation: Frequency tolerance is 0 Hz, evaluating ' +
+            'singular frequency bins only.'
+        )
+        print(79*'-')
+    if num_harms*freq_under_study > fs/2:
+        num_harms = int(fs/freq_under_study/2)
+        print(79*'-')
+        print(
+            f'THD calc: Limiting number of harmonics to {num_harms} ' + 
+            'to stay within Nyquist range.'
+        )
+        print(79*'-')
+
+    # ------------------------------------------------------------------------
+    # THD calculation
+    print(f'Calc THD at {freq_under_study} Hz for {num_harms} harmonics.')
+    thd_num = 0
+    bounds = []
+    all_bounds = []
+
+    for harm in np.arange(1,num_harms+1)+1:
+        eval_freq = harm*freq_under_study
+        eval_freq_idx = np.argmin(np.abs(freq - eval_freq))
+        print(f'Harmonic {harm} @ {np.round(eval_freq, 2)} Hz')
+        if tol_hz == 0:
+            thd_num += abs(spec[eval_freq_idx])**2
+            continue
+        bounds = [eval_freq - tol_hz, eval_freq + tol_hz]
+        bounds_idcs = [
+            np.argmin(np.abs(freq - bounds[0])),
+            np.argmin(np.abs(freq - bounds[1])),
+        ]
+        print(f'Summing from {bounds[0]} to {bounds[1]}')
+        thd_num += sum(abs(spec[bounds_idcs[0]:bounds_idcs[1]]))**2
+        all_bounds.append([bounds[0], bounds[1]])
+
+    thd_num = np.sqrt(thd_num)
+    if tol_hz == 0:
+        thd_denum = abs(spec[freq_under_study_idx])
+    else:
+        low_bound =  freq_under_study - tol_hz
+        high_bound = freq_under_study + tol_hz
+        low_bound_idx = np.argmin(np.abs(freq - low_bound))
+        high_bound_idx = np.argmin(np.abs(freq - high_bound))
+        bounds.append([freq[low_bound_idx], freq[high_bound_idx]])
+        thd_denum = sum(abs(spec[low_bound_idx:high_bound_idx]))
+
+    # ------------------------------------------------------------------------
+    # Plotting
+    if plot_spec:
+        vals = 20*np.log10(abs(spec))
+        _, ax = al_plt.plot_rfft_freq(
+            f = freq,
+            data = vals,
+            xscale = 'lin',
+        )
+        ax.set(
+            title='THD Spectrum',
+            xlim = [freq_under_study - 10, eval_freq + 10],
+            ylim = [
+                min(vals[freq_under_study_idx:eval_freq_idx]) - 10,
+                max(vals[freq_under_study_idx:eval_freq_idx]) + 10,
+            ]
+        )
+        
+        if tol_hz != 0:
+            ylims = ax.get_ylim()
+            _ = [
+                ax.fill_betweenx(
+                    ylims, bound[0], bound[1], alpha=.35
+                ) for bound in all_bounds
+            ]
+
+    return 100 * thd_num / thd_denum
+
+
 def get_rfft_spec(x, fs, Nfft=None):
     if Nfft is None:
         Nfft = len(x)
@@ -225,10 +471,12 @@ def get_rfft_spec(x, fs, Nfft=None):
     spec = np.abs(np.fft.rfft(x, Nfft))
     return freq, spec
 
+
 def get_rfft_power_spec(x, fs, Nfft=None):
     freq, spec = get_rfft_spec(x, fs, Nfft)
     Sxx = spec**2
     return freq, Sxx
+
 
 def get_ir_from_rfft(spec, fs, Nfft):
     """
@@ -256,6 +504,7 @@ def get_ir_from_rfft(spec, fs, Nfft):
     t = np.arange(-int(Nfft/2),int(Nfft/2)) / fs
     return t, centered_ir
 
+
 def get_ir_from_rawdata(x, fs, Nfft):
     """
     Computes real-valued IR from rawdata set.
@@ -280,6 +529,7 @@ def get_ir_from_rawdata(x, fs, Nfft):
     _, spec = get_rfft_spec(x, fs, Nfft)
     t, centered_ir = get_ir_from_rfft(spec, fs, Nfft)
     return t, centered_ir
+
 
 def get_msc(sig_0, sig_1, fs, blocklen, ):
     # TODO: Test

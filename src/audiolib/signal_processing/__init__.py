@@ -5,6 +5,8 @@ from .signal_processing import (
     get_ir_from_rawdata,
     get_msc,
     ExpSweep,
+    thd_from_time_sig,
+    apply_window,
 )
 
 __all__ = [
@@ -14,4 +16,6 @@ __all__ = [
     'get_ir_from_rawdata',
     'get_msc',
     'ExpSweep',
+    'thd_from_time_sig',
+    'apply_window',
 ]

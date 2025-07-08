@@ -1,10 +1,16 @@
 import numpy as np
 
 from abc import ABC, abstractmethod
+from audiolib.tools import print_progress_bar
 from collections import OrderedDict
 from dataclasses import dataclass
 
+import sys
+import types
+
 import pdb
+import matplotlib.pyplot as plt
+
 
 @dataclass(kw_only=True)
 class StateSpaceModelling(ABC):
@@ -64,6 +70,34 @@ class StateSpaceModelling(ABC):
             raise ValueError(
                 "No input time vector given. Consider using run_one_sample()."
             )
+    
+    def get_nonlinear_funcs(self):
+        if not self.is_nonlinear:
+            raise ValueError(
+                'System is linear: no non-linear functions to return.'
+            )
+        nonlin_entries = np.array([])
+        for entry in self.A.flatten():
+            if callable(entry):
+                nonlin_entries = np.append(nonlin_entries, entry)
+        
+        return nonlin_entries
+    
+    def tmp_nonlin_result_matrix(self, cur_output, ):
+        nonlin_funcs = self.get_nonlinear_funcs()
+        tmp_A = self.A.copy()
+        for func in nonlin_funcs:
+            tmp_A[np.where(self.A==func)] = func(cur_output)
+            # print(f'Set matrix \n {tmp_A} \n to {np.where(self.A==func)}')
+        return tmp_A
+
+    @property
+    def is_nonlinear(self):
+        # Check if an entry of A-matrix is a function. If so, assume non-linear
+        for entry in self.A.flatten():
+            if callable(entry):
+                return True
+        return False
 
     @property
     def output_dict(self):
@@ -129,9 +163,12 @@ class EulerBackward(StateSpaceModelling):
     def run_over_input(self):
         self._validate_input_sig()
         # range(1, ...-1) to give space for future input signal
-        for idx in range(1, len(self._output_matrix)-1):
+        total_len = len(self._output_matrix)-1
+        for idx in range(1, total_len):
             y_n = self.run_one_sample(idx)
             self._output_matrix[idx] = y_n
+            print_progress_bar(idx+1, total_len, barname=f'Euler-Backward')
+
 
     def run_one_sample(self, idx, ):
         y_n = (
@@ -184,9 +221,11 @@ class Bilinear(StateSpaceModelling):
 
     def run_over_input(self):
         self._validate_input_sig()
-        for idx in range(1, len(self._output_matrix)-1):
+        total_len = len(self._output_matrix)-1
+        for idx in range(1, total_len):
             y_n = self.run_one_sample(idx)
             self._output_matrix[idx] = y_n
+            print_progress_bar(idx+1, total_len, barname=f'Bilinear')
 
     def run_one_sample(self, idx, ):
         y_n = (
@@ -224,14 +263,18 @@ class EulerForward(StateSpaceModelling):
         A & B, since the observation order changes the shape of those matrices
     """
     def __post_init__(self):
+        # if self.is_nonlinear:
         self._A_new = self.A*self.Ts + self._ident # New A matrix
         self._B_new = self.B*self.Ts # New B matrix
 
     def run_over_input(self, ):
         self._validate_input_sig() # TODO: Move to super class setter of input?
-        for idx in range(1, len(self._output_matrix)):
+        total_len = len(self._output_matrix)
+        for idx in range(1, total_len):
             y_n, _ = self.run_one_sample(idx)
             self._output_matrix[idx] = y_n
+            print_progress_bar(idx+1, total_len, barname=f'Euler-Forward')
+
 
     def run_one_sample(self, idx, ):
         f_n1 = self.A @ self._output_matrix[idx-1] + self.B * self.input_sig[idx-1]
@@ -343,7 +386,8 @@ class AdamBashforth(StateSpaceModelling):
             )
 
     def run_over_input(self):
-        for idx in range(len(self._output_matrix)):
+        total_len = len(self._output_matrix)
+        for idx in range(total_len):
             if idx == 0:
                 tmp_idx = self._order + 1
                 output, _ = self.run_one_sample(
@@ -360,6 +404,8 @@ class AdamBashforth(StateSpaceModelling):
             
             # Need to overwrite euler forward output matrix for correct calcs:
             self._euler_forward._output_matrix = self._output_matrix
+            print_progress_bar(idx+1, total_len, barname=f'Adam-Bashforth {self.order}. order')
+
 
     @property
     def order(self):
@@ -392,8 +438,13 @@ class Heun(StateSpaceModelling):
     """
 
     def __post_init__(self):
+        if self.is_nonlinear:
+            # Temp. placeholder, A gets overwritten by non-linear state later
+            tmp_A = np.zeros(self.A.shape)
+        else:
+            tmp_A = self.A
         self._euler_forward = EulerForward(
-            A=self.A,
+            A=tmp_A,
             B=self.B,
             input_sig=self.input_sig,
             input_time=self.input_time,
@@ -402,16 +453,94 @@ class Heun(StateSpaceModelling):
 
     def run_over_input(self):
         self._validate_input_sig() # TODO: Move to super class setter of input?
-        for idx in range(1, len(self._output_matrix)-1):
+        total_len = len(self._output_matrix)-1
+        for idx in range(1, total_len):
             y_n = self.run_one_sample(idx)
             self._output_matrix[idx] = y_n
             # Need to overwrite euler forward output matrix for correct calcs:
             self._euler_forward._output_matrix = self._output_matrix
+            print_progress_bar(idx+1, total_len, barname='Heun')
     
     def run_one_sample(self, idx, ):
         # "f_n1" means f(t,y) at t-1, "f_n" means f(t,y) at t 
-        ŷ_n, f_n1 = self._euler_forward.run_one_sample(idx) # Predictor
-        f_n = self.A @ ŷ_n + self.B*self.input_sig[idx]
+        
+        # Predictor calculation
+        if self.is_nonlinear:
+            cur_output = OrderedDict(
+                (key, value[idx-1]) for key, value in self.output_dict.items()
+            )
+            tmp_A_pred = self.tmp_nonlin_result_matrix(cur_output)
+            self._euler_forward.A = tmp_A_pred
+        ŷ_n, f_n1 = self._euler_forward.run_one_sample(idx)
+        # Corrector Calculation
+        tmp_A_corr = self.tmp_nonlin_result_matrix(
+                OrderedDict(zip(self.obs_order, ŷ_n))
+            ) if self.is_nonlinear else self.A
+        f_n = tmp_A_corr @ ŷ_n + self.B*self.input_sig[idx]
         y_n = self._output_matrix[idx-1] + .5*self.Ts*(f_n + f_n1) 
         return y_n
     
+
+@dataclass(kw_only=True)
+class BilinearNewton(StateSpaceModelling):
+    J : types.FunctionType
+    tol : float = 1e-6
+    max_iter : int = 50
+
+    def run_one_sample(self, idx):
+        # --------------------------------------------------------------------
+        # Pre-Define the relevant variables, vectors and matrices
+        q_k_dict = OrderedDict(
+            (key, value[idx]) for key, value in self.output_dict.items()
+        ) # Previous state as initial guess for approximation
+        q_k1_dict = OrderedDict(
+            (key, value[idx-1]) for key, value in self.output_dict.items()
+        )
+        q_k = self._output_matrix[idx]
+        q_k1 = self._output_matrix[idx-1]
+        u_k = self.input_sig[idx].copy()
+        u_k1 = self.input_sig[idx-1].copy()
+        error = np.inf
+        iter = 0
+        I = np.eye(len(q_k))
+        prev_A_x = self.tmp_nonlin_result_matrix(q_k1_dict) if self.is_nonlinear else self.A
+
+        # --------------------------------------------------------------------
+        # Start Optimization loop
+        while error > self.tol:
+            A_x = self.tmp_nonlin_result_matrix(q_k_dict) if self.is_nonlinear else self.A
+
+            G = (
+                (I - self.Ts/2*A_x)@q_k
+                - (self.Ts/2*prev_A_x + I)@q_k1
+                - self.Ts/2*self.B*(u_k + u_k1)
+            ).astype('float64')
+            cur_jacobian = self.J(q_k_dict, q_k1_dict, self.Ts)
+            delta_q = -np.linalg.solve(cur_jacobian, G)
+            q_k = q_k + delta_q
+            q_k_dict = self._update_dict(q_k_dict, q_k)
+            error = np.linalg.norm(delta_q)
+            iter += 1
+            if iter > self.max_iter:
+                raise RuntimeError(f"Newton-Raphson did not converge at index {idx}.")
+            
+        return q_k, iter
+        
+    
+    def run_over_input(self):
+        self._validate_input_sig() # TODO: Move to super class setter of input?
+        total_len = len(self._output_matrix)-1
+        total_iters = []
+        for idx in range(1, total_len):
+            y_n, num_iters = self.run_one_sample(idx)
+            total_iters.append(num_iters)
+            self._output_matrix[idx] = y_n
+            print_progress_bar(idx+1, total_len, barname='Bil. Newton-Raphson')
+        print('\n')
+
+
+    def _update_dict(self, ordered_dict, array, ):
+        for key, value in zip(ordered_dict.keys(), array):
+            ordered_dict[key] = value
+
+        return ordered_dict

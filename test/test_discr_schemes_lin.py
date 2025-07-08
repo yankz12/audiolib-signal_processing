@@ -3,17 +3,19 @@ import audiolib.plotting as al_plt
 import audiolib.elac as al_elac
 import matplotlib.pyplot as plt
 import numpy as np
+import warnings
 
 from audiolib.signal_processing import ExpSweep
+from SynchSweptSine import SynchSweptSine
 
 # ----------------------------------------------------------------------------
 # General variables
 fig_size = (6.4, 4.5)
 freq = np.arange(1, 2e3, )
-fs = 48000
+fs = 24000
 Ts = 1/fs
 
-sig_dur = .5
+sig_dur = 10
 sig_type = 'sweep' # ['dirac', 'sine', 'sweep']
 
 plot_win_dur = .4 # 200e-3 # 50ms [s]
@@ -36,17 +38,23 @@ elif sig_type == 'sine':
     plot_win_len = int(np.round(plot_win_dur*fs))
     u_in = np.sin(2*np.pi*f*t)
 elif sig_type == 'sweep':
-    f1 = 20
-    f2 = 2000
+    f1 = 3
+    f2 = 11e3
+    fade_in = np.round(int(1*fs)) # s
+    fade_out = np.round(int(0.01*fs)) # s
     sweep = ExpSweep(
         f1=f1,
         f2=f2,
         fs=fs,
         approx_dur=sig_dur,
+        # apply_fade_to=None,
     )
     t, u_in = sweep.get_sweep_signal()
-    t = t[:-1]
-    u_in = u_in[:-1]
+    sss = SynchSweptSine(f1=f1, f2=f2, T=sig_dur, fs=fs, fade=[fade_in, fade_out])
+    u_in = sss.signal
+    t = np.arange(0,np.round(fs*sig_dur-1)/fs,1/fs)  # time axis
+    # t = t[:-1]
+    # u_in = u_in[:-1]
 
 
 # ----------------------------------------------------------------------------
@@ -105,7 +113,7 @@ ab = st_sp.AdamBashforth(
     obs_order = obs_order,
     order=3,
 )
-heun = st_sp.Heun(
+heun_lin = st_sp.Heun(
     A=A,
     B=B,
     input_sig=u_in,
@@ -117,7 +125,11 @@ eb.run_over_input()
 ef.run_over_input()
 bil.run_over_input()
 ab.run_over_input()
-heun.run_over_input()
+heun_lin.run_over_input()
+
+
+# ----------------------------------------------------------------------------
+# Plotting Time
 
 fig_t, ax_t = al_plt.plot_time(
     t = t[:plot_win_len],
@@ -147,8 +159,15 @@ al_plt.plot_time(
 )
 al_plt.plot_time(
     t = t[:plot_win_len],
-    data = 1e3*heun.output_dict['x'][:plot_win_len],
-    label = 'Heun',
+    data = 1e3*heun_lin.output_dict['x'][:plot_win_len],
+    label = 'Heun Lin.',
+    fig=fig_t,
+    ax=ax_t,
+)
+al_plt.plot_time(
+    t = t[:plot_win_len],
+    data = u_in[:plot_win_len],
+    label = 'Input signal',
     fig=fig_t,
     ax=ax_t,
 )
@@ -157,4 +176,24 @@ ax_t.set(
     ylim=[-ylims, ylims],
     ylabel='Displacement [mm]'
 )
+
+
+# ----------------------------------------------------------------------------
+# Plotting Frequency
+len_IR = 2**15
+freq_irs = np.fft.rfftfreq(len_IR, 1/fs) # Freq. axis
+
+h_xu_ef = sss.getIR(ef.output_dict['x'][:-1]) # the full impulse response
+Hs_xu_ef = sss.separate_IR(h_xu_ef, N=2, n_samples=len_IR)    # separatef HHFRs
+
+Hs_xu_ef_arg = Hs_xu_ef*np.exp(-1j*freq_irs*np.pi*len_IR/fs)
+
+fig_x, ax_mag_x, ax_arg_x = al_plt.plot_mag_phase(
+    freq_h = freq_irs,
+    magnitude = 20*np.log10(abs(Hs_xu_ef.transpose())),
+    phase_deg = np.angle(Hs_xu_ef_arg.transpose()), # *exp(-1j*freq*pi*nfft/hhir.samplerate)
+    xscale='log',
+    label='EF',
+)
+
 plt.show(block=False)
