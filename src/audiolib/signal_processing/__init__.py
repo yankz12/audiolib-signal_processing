@@ -7,6 +7,7 @@ from .signal_processing import (
     ExpSweep,
     thd_from_time_sig,
     apply_window,
+    hnr_from_time_sig,
 )
 
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     'ExpSweep',
     'thd_from_time_sig',
     'apply_window',
+    'hnr_from_time_sig',
 ]

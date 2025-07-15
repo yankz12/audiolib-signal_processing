@@ -6,8 +6,6 @@ import scipy.signal as scsp
 from dataclasses import dataclass
 from scipy.fftpack import fftshift
 
-import pdb
-
 @dataclass
 class ExpSweep():
     """
@@ -217,6 +215,11 @@ class ExpSweep():
         Hs_reverted : np.ndarray
             Matrix with HHFRFs without delay of len_irs/2
         """
+        # Hs_reverted = np.array([
+        #     Hs_t*np.exp(-1j*2*np.pi*self.f_axis(self.len_irs)/self.fs*(self.len_irs/2)
+        #     )
+        #     for Hs_t in Hs
+        # ])
         Hs_reverted = Hs*np.exp(
             -1j*2*np.pi*self.f_axis(self.len_irs)/self.fs*3*(self.len_irs)/2
         )
@@ -254,6 +257,9 @@ class ExpSweep():
         T = k*np.log(self.f2/self.f1)/self.f1
         return T
 
+
+def get_crest_factor(signal):
+    return np.max(np.abs(signal)) / np.sqrt(np.mean(signal**2))
 
 def apply_window(sig, fs, win_type, win_dur, ):
     """
@@ -293,6 +299,151 @@ def apply_window(sig, fs, win_type, win_dur, ):
         sig[-int(win_len/2):] *= fade_out
     return sig
 
+def _prep_harmonics_analysis(
+    x,
+    fs,
+    f_sine,
+    nfft = None,
+    apply_win = False,
+    win_dur = 0.01,
+    num_harms = 5,
+    tol_hz = 10,
+):
+    # ------------------------------------------------------------------------
+    # Window application
+    if apply_win:
+        window = 'blackman'
+        x = apply_window(x, fs=fs, win_type=window, win_dur=win_dur, )
+
+    # ------------------------------------------------------------------------
+    # Spectrum calculation and gathering of first frequency infos
+    freq, spec = get_rfft_spec(x, fs, Nfft=nfft, )
+
+    # ------------------------------------------------------------------------
+    # Check if f_sine is perfectly hit or not in spectrum (prevent leakage)
+    if not f_sine in freq:
+        closest_freq = np.argmin(np.abs(freq - freq_under_study))
+        raise ValueError(
+            f"Input frequency {f_sine} Hz does not hit frequency bin for " +
+            f"proper THD amplitude estimation. Next bin is {closest_freq} Hz. " + 
+            f"Re-define your frequency or signal length or nfft."
+        )
+    else:
+         print(f"THD: FUT {f_sine} Hz hits frequency bin perfectly.")
+
+    freq_under_study_idx = np.argwhere(freq == f_sine)[0][0]
+    freq_under_study = freq[freq_under_study_idx]
+    freq_accuracy = freq[1] - freq[0]
+
+    # ------------------------------------------------------------------------
+    # Integrity checks of inputs (tolerance, Nyquist etc.)
+    if (tol_hz < freq_accuracy) and (tol_hz != 0):
+        print(79*'-')
+        print(
+            ' THD Calculation:\n Tolerance too small: ' + 
+            f'set to minimum possible tolerance of ' + 
+            f'{np.round(freq_accuracy, 2)} Hz.\n (= frequency resolution)'
+        )
+        print(79*'-')
+        tol_hz = freq_accuracy
+    if tol_hz == 0:
+        print(
+            'THD calculation: Frequency tolerance is 0 Hz, evaluate ' +
+            'single frequency bins only.'
+        )
+        print(79*'-')
+    if num_harms*freq_under_study > fs/2:
+        num_harms = int(fs/freq_under_study/2)
+        print(79*'-')
+        print(
+            f'THD calc: Limiting number of harmonics to {num_harms} ' + 
+            'to stay within Nyquist range.'
+        )
+        print(79*'-')
+    
+    return freq, spec, freq_under_study_idx
+
+
+def hnr_from_time_sig(
+    x,
+    noise,
+    fs,
+    f_sine,
+    nfft = None,
+    apply_win = False,
+    win_dur = 0.01,
+    num_harms = 5,
+    tol_hz = 10,
+    plot_spec = True,
+):
+    freq, spec, freq_under_study_idx = _prep_harmonics_analysis(
+        x = x,
+        fs = fs,
+        f_sine = f_sine,
+        nfft = nfft,
+        apply_win = apply_win,
+        win_dur = win_dur,
+        num_harms = num_harms,
+        tol_hz = tol_hz,
+    )
+    freq_under_study = freq[freq_under_study_idx]
+    _, noise_spec = get_rfft_spec(noise, fs, Nfft=nfft, )
+
+    # ------------------------------------------------------------------------
+    # Harmonic-to-Noise calculation
+    print(f'Calc THD at {freq_under_study} Hz for {num_harms} harmonics.')
+    HNR = []
+    bounds = []
+    all_bounds = []
+
+    for harm in np.arange(1,num_harms+1)+1:
+        eval_freq = harm*freq_under_study
+        eval_freq_idx = np.argmin(np.abs(freq - eval_freq))
+        print(f'Harmonic {harm} @ {np.round(eval_freq, 2)} Hz')
+        bounds = [eval_freq - tol_hz, eval_freq + tol_hz]
+        bounds_idcs = [
+            np.argmin(np.abs(freq - bounds[0])),
+            np.argmin(np.abs(freq - bounds[1])),
+        ]
+        crest = get_crest_factor(spec[bounds_idcs[0]:bounds_idcs[1]])
+        if crest < 2:
+            print(f'Crest @ {eval_freq}Hz is too low ({np.round(crest,2)}). Skipping.')
+            HNR.append(1)
+            continue
+        print(f'Summing from {bounds[0]} to {bounds[1]}')
+        num = max(spec[bounds_idcs[0]:bounds_idcs[1]])
+        denum = np.mean(abs(noise_spec[bounds_idcs[0]:bounds_idcs[1]]))
+        print(f' Harmonic: {num}\n Noise: {denum}')
+        HNR.append(num / denum)
+        all_bounds.append([bounds[0], bounds[1]])
+
+    # ------------------------------------------------------------------------
+    # Plotting
+    if plot_spec:
+        vals = 20*np.log10(abs(spec))
+        fig, ax = al_plt.plot_rfft_freq(
+            f = freq,
+            data = vals,
+            xscale = 'lin',
+        )
+        ax.set(
+            title='THD Spectrum',
+            xlim = [freq_under_study - 10, eval_freq + 10],
+            ylim = [
+                min(vals[freq_under_study_idx:eval_freq_idx]) - 10,
+                max(vals[freq_under_study_idx:eval_freq_idx]) + 10,
+            ]
+        )
+        
+        if tol_hz != 0:
+            ylims = ax.get_ylim()
+            _ = [
+                ax.fill_betweenx(
+                    ylims, bound[0], bound[1], alpha=.35
+                ) for bound in all_bounds
+            ]
+
+    return HNR
 
 def thd_from_time_sig(
         x,
@@ -349,57 +500,17 @@ def thd_from_time_sig(
         Total Harmonic distortion in percentage
     """
 
-    # ------------------------------------------------------------------------
-    # Window application
-    if apply_win:
-        window = 'blackman'
-        x = apply_window(x, fs=fs, win_type=window, win_dur=win_dur, )
-
-    # ------------------------------------------------------------------------
-    # Spectrum calculation and gathering of first frequency infos
-    freq, spec = get_rfft_spec(x, fs, Nfft=nfft, )
-
-    # ------------------------------------------------------------------------
-    # Check if f_sine is perfectly hit or not in spectrum (prevent leakage)
-    if not f_sine in freq:
-        closest_freq = np.argmin(np.abs(freq - freq_under_study))
-        raise ValueError(
-            f"Input frequency {f_sine} Hz does not hit frequency bin for " +
-            f"proper THD amplitude estimation. Next bin is {closest_freq} Hz. " + 
-            f"Re-define your frequency or signal length or nfft."
-        )
-    else:
-         print(f"THD: FUT {f_sine} Hz hits frequency bin perfectly.")
-
-    freq_under_study_idx = np.argwhere(freq == f_sine)[0][0]
+    freq, spec, freq_under_study_idx = _prep_harmonics_analysis(
+        x = x,
+        fs = fs,
+        f_sine = f_sine,
+        nfft = nfft,
+        apply_win = apply_win,
+        win_dur = win_dur,
+        num_harms = num_harms,
+        tol_hz = tol_hz,
+    )
     freq_under_study = freq[freq_under_study_idx]
-    freq_accuracy = freq[1] - freq[0]
-
-    # ------------------------------------------------------------------------
-    # Integrity checks of inputs (tolerance, Nyquist etc.)
-    if (tol_hz < freq_accuracy) and (tol_hz != 0):
-        print(79*'-')
-        print(
-            ' THD Calculation:\n Tolerance too small: ' + 
-            f'set to minimum possible tolerance of ' + 
-            f'{np.round(freq_accuracy, 2)} Hz.\n (= frequency resolution)'
-        )
-        print(79*'-')
-        tol_hz = freq_accuracy
-    if tol_hz == 0:
-        print(
-            'THD calculation: Frequency tolerance is 0 Hz, evaluating ' +
-            'singular frequency bins only.'
-        )
-        print(79*'-')
-    if num_harms*freq_under_study > fs/2:
-        num_harms = int(fs/freq_under_study/2)
-        print(79*'-')
-        print(
-            f'THD calc: Limiting number of harmonics to {num_harms} ' + 
-            'to stay within Nyquist range.'
-        )
-        print(79*'-')
 
     # ------------------------------------------------------------------------
     # THD calculation
@@ -439,7 +550,7 @@ def thd_from_time_sig(
     # Plotting
     if plot_spec:
         vals = 20*np.log10(abs(spec))
-        _, ax = al_plt.plot_rfft_freq(
+        fig, ax = al_plt.plot_rfft_freq(
             f = freq,
             data = vals,
             xscale = 'lin',
