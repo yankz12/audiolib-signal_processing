@@ -324,8 +324,9 @@ def _prep_harmonics_analysis(
     if not f_sine in freq:
         closest_freq = np.argmin(np.abs(freq - freq_under_study))
         raise ValueError(
-            f"Input frequency {f_sine} Hz does not hit frequency bin for " +
-            f"proper THD amplitude estimation. Next bin is {closest_freq} Hz. " + 
+            f"Harmonic Analysis: Input frequency {f_sine} Hz does not hit "
+            f"frequency bin for proper harmonic amplitude estimation. Next "
+            f"bin is {closest_freq} Hz. " + 
             f"Re-define your frequency or signal length or nfft."
         )
     else:
@@ -374,6 +375,7 @@ def hnr_from_time_sig(
     win_dur = 0.01,
     num_harms = 5,
     tol_hz = 10,
+    crest_lim = 1.5,
     plot_spec = True,
 ):
     freq, spec, freq_under_study_idx = _prep_harmonics_analysis(
@@ -406,14 +408,16 @@ def hnr_from_time_sig(
             np.argmin(np.abs(freq - bounds[1])),
         ]
         crest = get_crest_factor(spec[bounds_idcs[0]:bounds_idcs[1]])
-        if crest < 2:
-            print(f'Crest @ {eval_freq}Hz is too low ({np.round(crest,2)}). Skipping.')
+        if crest < crest_lim:
+            print(f'Calculate crest factor from {bounds[0]}Hz to {bounds[1]}Hz.')
+            print(f'Crest @ {eval_freq}Hz is too low ({np.round(crest,2)}). '
+                  f'Should be >= {crest_lim} to assume that the harmonic is not '
+                   'drowning in noise. Skipping.')
             HNR.append(1)
             continue
-        print(f'Summing from {bounds[0]} to {bounds[1]}')
+        print(f'Averaging noise level between {bounds[0]}Hz and {bounds[1]}Hz.')
         num = max(spec[bounds_idcs[0]:bounds_idcs[1]])
         denum = np.mean(abs(noise_spec[bounds_idcs[0]:bounds_idcs[1]]))
-        print(f' Harmonic: {num}\n Noise: {denum}')
         HNR.append(num / denum)
         all_bounds.append([bounds[0], bounds[1]])
 
@@ -550,7 +554,7 @@ def thd_from_time_sig(
     # Plotting
     if plot_spec:
         vals = 20*np.log10(abs(spec))
-        fig, ax = al_plt.plot_rfft_freq(
+        _, ax = al_plt.plot_rfft_freq(
             f = freq,
             data = vals,
             xscale = 'lin',
