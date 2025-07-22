@@ -1,5 +1,5 @@
 import audiolib.plotting as al_plt
-import jax.numpy
+import jax.numpy as jnp
 import numpy as np 
 import scipy.signal as scsp
 
@@ -291,7 +291,7 @@ def apply_window(sig, fs, win_type, win_dur, ):
     fade_in = win[:win_max]
     fade_out = np.flip(fade_in)
     # Apply window:
-    if isinstance(sig, jax.numpy.ndarray):
+    if isinstance(sig, jnp.ndarray):
         sig = sig.at[:int(win_len/2)].set(sig[:int(win_len/2)]*fade_in)
         sig = sig.at[-int(win_len/2):].set(sig[-int(win_len/2):]*fade_out)
     else:
@@ -578,6 +578,52 @@ def thd_from_time_sig(
 
     return 100 * thd_num / thd_denum
 
+def get_group_delay(freq, H, ):
+    """
+    Calculates group delay spectrum of complex-valued transfer fuction H.
+    Note that this calculation does not include sample-based delay (linear
+    phase delay), as it is always normalized to 0s. To get sample
+
+    Parameters
+    ----------
+    freq : array or iterable [Hz]
+        Frequency vector of H
+    H : array or iterable
+        Complex-value transfer function of the system under study
+    
+    Returns
+    -------
+    group_delay : np.ndarray [s]
+        Group delay spectrum of H
+    """
+    phase_spec = np.unwrap(np.angle(H))
+    w = 2*np.pi*freq
+    group_delay = -jnp.gradient(phase_spec, w)
+    return group_delay
+
+def get_delay_via_crosscorr(x, y, fs, plot=False):
+    cross_corr = scsp.correlate(x, y, mode='full', method='direct')
+    lags = scsp.correlation_lags(x.size, y.size, mode='full')/fs
+    # Smiths suggestion to improve guess at x-corr peak, when
+    # the "correct" delay lies between two sample points:
+    # https://ccrma.stanford.edu/%7Ejos/parshl/Peak_Detection_Steps_3.html
+    x_corr_max_idx = np.argmax(cross_corr)
+    # alpha = lags[x_corr_max_idx-1]
+    beta = lags[x_corr_max_idx]
+    # gamma = lags[x_corr_max_idx+1]
+    # p_num = alpha - gamma
+    # p_denum = alpha - 2*beta + gamma
+    # print(f'alpha : {alpha}, beta : {beta}, gamma : {gamma}')
+    # print(f'Numerator: {p_num}, Denum: {p_denum}')
+    # if p_denum == 0:
+    #     print(f'Denum is 0')
+    #     delay = beta
+    # else:
+    #     delay = beta + .5*p_num/p_denum
+    if plot:
+        _, ax = al_plt.plot_time(lags*1e3, cross_corr)
+        ax.set(xlabel='Lag [ms]')
+    return beta
 
 def get_rfft_spec(x, fs, Nfft=None):
     if Nfft is None:

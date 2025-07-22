@@ -8,6 +8,9 @@ from .signal_processing import (
     thd_from_time_sig,
     apply_window,
     hnr_from_time_sig,
+    get_delay_via_crosscorr,
+    get_group_delay,
+    get_crest_factor,
 )
 
 __all__ = [
@@ -20,4 +23,7 @@ __all__ = [
     'thd_from_time_sig',
     'apply_window',
     'hnr_from_time_sig',
+    'get_delay_via_crosscorr',
+    'get_group_delay',
+    'get_crest_factor',
 ]
