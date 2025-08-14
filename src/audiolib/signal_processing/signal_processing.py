@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np 
 import scipy.signal as scsp
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from scipy.fftpack import fftshift
 
 @dataclass
@@ -234,6 +234,7 @@ class ExpSweep():
         where : str, one out of ['in', 'out', 'both']
             Apply only fade-in, only fade-out or both
         """
+        # TODO: Make different windowing functions possible
         if where == 'in' or where == 'both':
             sweep[0:self._len_fade_in] = sweep[0:self._len_fade_in] * (
                 (
@@ -256,6 +257,100 @@ class ExpSweep():
         k = int(np.round(self.f1*self.approx_dur/(np.log(self.f2/self.f1))))
         T = k*np.log(self.f2/self.f1)/self.f1
         return T
+
+@dataclass
+class Multitone():
+    f1 : float
+    f2: float
+    n_freqs : int
+    fs : int
+    sig_dur: float
+    peak_ampl : float = 1
+    ampl_freq_weights : list = field(default_factory=lambda: [None])
+    ampl_freqs : list = field(default_factory=lambda: [None])
+    win_type : str = 'rect'
+    win_dur : float = 5e-2 # 50ms
+    """
+    Multitone with logarithmically spaced frequencies
+
+    Parameters
+    ----------
+        f1 : float
+            Lower end frequency
+        f2 : float
+            Higher end frequency
+        n_freqs : int
+            Total number of summed sine waves
+        fs : int
+            Sampling frequency
+        sig_dur : float
+            Total multitone duration in seconds
+        peak_ampl : float, option
+            Peak amplitude of multitone, defaults to 1
+        ampl_freq_weights : array, optional
+            Weighting function for individual sine waves, defaults to [None]
+        ampl_freqs : array, optional
+            Frequency vector according to ampl_freq_weights, defaults to [None].
+            If sine frequency doesnt hit weighting frequency perfectly,
+            instance chooses the closest frequency weight for this sine.
+        win_type : str, optional
+            Windowing function for multitone, defaults to 'rect' (= no window).
+            Has to be of scipy window type
+            https://docs.scipy.org/doc/scipy/reference/generated/scipy.signal.get_window.html
+        win_dur : float, optional
+            Duration of applied window. Len of each fade (in/out) will be
+            win_dur/2.
+
+    Call multitone.get_multitone_signal() to get [t, signal]
+    Call multitone.frequencies to get frequencies in multitone
+    """
+    def __post_init__(self):
+        if (self.ampl_freq_weights[0] is not None) and (self.ampl_freqs[0] is not None):
+            self._ampl_weight = True
+            print('  Multitone: applying frequency weights.')
+        else:
+            self._ampl_weight = False
+
+    def get_multitone_signal(self):
+        multitone_sig = np.zeros(len(self.t))
+        for f in self.frequencies:
+            phase = np.pi/2 *  np.random.randn(1)
+            f_weight = 1
+
+            if self._ampl_weight:
+                f_weight_idx = np.argmin(np.abs(self.ampl_freqs - f))
+                f_weight = self.ampl_freq_weights[f_weight_idx]
+
+            multitone_sig += f_weight*np.sin(2*np.pi*f * self.t + phase)
+
+        multitone_sig = self.peak_ampl*multitone_sig/max(multitone_sig)
+        # import pdb
+        # pdb.set_trace()
+        multitone_sig = apply_window(
+            multitone_sig,
+            win_type=self.win_type,
+            win_dur=self.win_dur,
+            fs=self.fs,
+        ) if self.win_type != 'rect' else multitone_sig
+        return self.t, multitone_sig
+
+    @property
+    def frequencies(self):
+        freqs = np.unique(
+            np.round(
+                np.logspace(
+                    np.log10(self.f1),
+                    np.log10(self.f2),
+                    self.n_freqs,
+                    endpoint=True,
+        )))
+        return freqs
+    
+    @property
+    def t(self):
+        return np.arange(0, self.sig_dur, 1/self.fs)
+    
+    
 
 
 def get_crest_factor(signal):
@@ -338,6 +433,13 @@ def _prep_harmonics_analysis(
 
     # ------------------------------------------------------------------------
     # Integrity checks of inputs (tolerance, Nyquist etc.)
+    if tol_hz >= f_sine:
+        while tol_hz >= f_sine:
+            tol_hz /= 2
+        print(
+            'Frequency tolerance bigger than base frequency: '
+            'Danger of including neighboring harmonics in tolerane range. '
+            f'\nReduced tolerance to {tol_hz}Hz.')
     if (tol_hz < freq_accuracy) and (tol_hz != 0):
         print(79*'-')
         print(
@@ -362,7 +464,7 @@ def _prep_harmonics_analysis(
         )
         print(79*'-')
     
-    return freq, spec, freq_under_study_idx
+    return freq, spec, freq_under_study_idx, tol_hz
 
 
 def hnr_from_time_sig(
@@ -374,11 +476,11 @@ def hnr_from_time_sig(
     apply_win = False,
     win_dur = 0.01,
     num_harms = 5,
-    tol_hz = 10,
+    tol_hz = 5,
     crest_lim = 1.5,
     plot_spec = True,
 ):
-    freq, spec, freq_under_study_idx = _prep_harmonics_analysis(
+    freq, spec, freq_under_study_idx, tol_hz = _prep_harmonics_analysis(
         x = x,
         fs = fs,
         f_sine = f_sine,
@@ -413,7 +515,7 @@ def hnr_from_time_sig(
             print(f'Crest @ {eval_freq}Hz is too low ({np.round(crest,2)}). '
                   f'Should be >= {crest_lim} to assume that the harmonic is not '
                    'drowning in noise. Skipping.')
-            HNR.append(1)
+            HNR.append(0)
             continue
         print(f'Averaging noise level between {bounds[0]}Hz and {bounds[1]}Hz.')
         num = max(spec[bounds_idcs[0]:bounds_idcs[1]])
@@ -425,10 +527,18 @@ def hnr_from_time_sig(
     # Plotting
     if plot_spec:
         vals = 20*np.log10(abs(spec))
+        noise_spec_log = 20*np.log10(abs(noise_spec))
         fig, ax = al_plt.plot_rfft_freq(
             f = freq,
             data = vals,
             xscale = 'lin',
+        )
+        al_plt.plot_rfft_freq(
+            f = freq,
+            data = noise_spec_log,
+            xscale = 'lin',
+            fig=fig,
+            ax=ax,
         )
         ax.set(
             title='THD Spectrum',
@@ -504,7 +614,7 @@ def thd_from_time_sig(
         Total Harmonic distortion in percentage
     """
 
-    freq, spec, freq_under_study_idx = _prep_harmonics_analysis(
+    freq, spec, freq_under_study_idx, tol_hz = _prep_harmonics_analysis(
         x = x,
         fs = fs,
         f_sine = f_sine,
@@ -621,7 +731,7 @@ def get_delay_via_crosscorr(x, y, fs, plot=False):
     # else:
     #     delay = beta + .5*p_num/p_denum
     if plot:
-        _, ax = al_plt.plot_time(lags*1e3, cross_corr)
+        fig, ax = al_plt.plot_time(lags*1e3, cross_corr)
         ax.set(xlabel='Lag [ms]')
     return beta
 
