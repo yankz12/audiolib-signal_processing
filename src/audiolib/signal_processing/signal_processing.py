@@ -307,7 +307,7 @@ class Multitone():
     def __post_init__(self):
         if (self.ampl_freq_weights[0] is not None) and (self.ampl_freqs[0] is not None):
             self._ampl_weight = True
-            print('  Multitone: applying frequency weights.')
+            print('Multitone: applying frequency weights.')
         else:
             self._ampl_weight = False
 
@@ -320,6 +320,7 @@ class Multitone():
             if self._ampl_weight:
                 f_weight_idx = np.argmin(np.abs(self.ampl_freqs - f))
                 f_weight = self.ampl_freq_weights[f_weight_idx]
+                print(f'  Multitone: Weight @ {f}Hz = {np.round(f_weight, 6)}')
 
             multitone_sig += f_weight*np.sin(2*np.pi*f * self.t + phase)
 
@@ -349,8 +350,6 @@ class Multitone():
     @property
     def t(self):
         return np.arange(0, self.sig_dur, 1/self.fs)
-    
-    
 
 
 def get_crest_factor(signal):
