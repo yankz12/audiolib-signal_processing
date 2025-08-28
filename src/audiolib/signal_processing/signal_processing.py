@@ -5,6 +5,8 @@ import scipy.signal as scsp
 
 from dataclasses import dataclass, field
 from scipy.fftpack import fftshift
+from typing import Optional
+
 
 @dataclass
 class ExpSweep():
@@ -270,6 +272,8 @@ class Multitone():
     ampl_freqs : list = field(default_factory=lambda: [None])
     win_type : str = 'rect'
     win_dur : float = 5e-2 # 50ms
+    random_phase_seed : Optional[int] = None # seed 2021 gives comp. low crest factor
+
     """
     Multitone with logarithmically spaced frequencies
 
@@ -300,6 +304,8 @@ class Multitone():
         win_dur : float, optional
             Duration of applied window. Len of each fade (in/out) will be
             win_dur/2.
+        random_phase_seed : int, optional
+            Seed of random generator to randomize phase between 0 and pi/2
 
     Call multitone.get_multitone_signal() to get [t, signal]
     Call multitone.frequencies to get frequencies in multitone
@@ -313,8 +319,12 @@ class Multitone():
 
     def get_multitone_signal(self):
         multitone_sig = np.zeros(len(self.t))
+        if self.random_phase_seed is None:
+            rng = np.random
+        else:
+            rng = np.random.RandomState(self.random_phase_seed) 
         for f in self.frequencies:
-            phase = np.pi/2 *  np.random.randn(1)
+            phase = np.pi/2 *  rng.randn(1)
             f_weight = 1
 
             if self._ampl_weight:
